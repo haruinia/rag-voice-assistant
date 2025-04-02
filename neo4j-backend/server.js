@@ -1,10 +1,12 @@
 const express = require('express');
 const cors = require('cors');
-// const neo4j = require('neo4j-driver');
 const app = express();
 const port = 3000;
 
+// 中间件配置
 app.use(cors());  // 允许所有来源的跨域请求
+app.use(express.json()); // 解析JSON请求体 - 这行是关键
+app.use(express.urlencoded({ extended: true })); // 解析URL编码的请求体
 
 // 导入 API 路由
 const dataRouter = require('./api/data');
@@ -16,7 +18,6 @@ app.use('/api/data', dataRouter);
 app.get('/', (req, res) => {
     res.send('Welcome to the Neo4j API Server');
 });
-
 
 // 启动服务器
 app.listen(port, () => {
