@@ -1,0 +1,1155 @@
+template
+  div class=ai-assistant-container
+    div class=chat-header
+      div class=header-left
+        h3智能知识助手h3
+        span class=model-infoModel deepseek-r132bspan
+      div
+      div class=header-right
+        button @click=showAllNodes class=action-button title=查看知识库
+          i class=fas fa-databasei
+        button
+        span class=status-indicator class={ active isConnected }
+          {{ isConnected  '已连接'  '未连接' }}
+        span
+        button 
+          @click=toggleDebug 
+          class=debug-toggle
+          class={ active debug }
+        
+          i class=fas fa-bugi
+        button
+      div
+    div
+
+    div class=chat-messages ref=chatMessages
+      div v-for=(message, index) in chatMessages 
+           key=index
+           class=['message', message.role]
+        div class=message-content
+          div class=message-header
+            div class=message-role
+              i class=message.role === 'assistant'  'fas fa-robot'  'fas fa-user'i
+              span{{ message.role === 'assistant'  'AI 助手'  '您' }}span
+            div
+            div v-if=message.source 
+                 class=['message-source', {
+                   'knowledge-graph' message.source === 'knowledge_graph',
+                   'model-only' message.source === 'model',
+                   'error' message.source === 'error'
+                 }]
+              i class=message.source === 'knowledge_graph'  'fas fa-database'  
+                        message.source === 'error'  'fas fa-exclamation-triangle'  'fas fa-robot'i
+              span{{ message.source === 'knowledge_graph'  '基于知识图谱'  
+                       message.source === 'error'  '错误信息'  '仅基于模型' }}span
+            div
+          div
+          div class=message-text v-html=formatMessage(message.content)div
+          div v-if=message.queryDetails && debug class=query-details
+            pre{{ JSON.stringify(message.queryDetails, null, 2) }}pre
+          div
+        div
+      div
+      
+      div v-if=isTyping class=message assistant
+        div class=typing-indicator
+          spanspan
+          spanspan
+          spanspan
+        div
+      div
+    div
+
+    div v-if=debug class=debug-panel
+      div class=debug-section
+        h4查询分析h4
+        pre{{ currentAnalysis }}pre
+      div
+      div class=debug-section
+        h4知识图谱查询h4
+        pre{{ currentQuery }}pre
+      div
+    div
+
+    div class=chat-input
+      textarea 
+        v-model=userInput
+        @keydown.enter.prevent=sendMessage
+        placeholder=输入您的问题...
+        disabled=isTyping
+      textarea
+      button 
+        @click=sendMessage
+        disabled=isTyping  !userInput.trim()
+      
+        i class=fas fa-paper-planei
+      button
+    div
+  div
+template
+
+script
+import axios from 'axios';
+import { marked } from 'marked';
+
+export default {
+  name 'AIAssistant',
+  
+  data() {
+    return {
+      apiBaseUrl 'httplocalhost3000apidata',
+      aiApiUrl 'http210.27.197.2711434apichat',
+      chatMessages [],
+      userInput '',
+      isTyping false,
+      debug false,
+      isConnected true,
+      currentAnalysis null,
+      currentQuery null,
+      cache new Map(),
+      typingSpeed 50,
+    };
+  },
+
+  created() {
+     测试数据库连接和基本查询
+    this.testDatabaseConnection();
+  },
+
+  methods {
+     增强意图分析方法
+    async analyzeIntent(userMessage) {
+      console.log(开始分析查询意图, userMessage);
+      
+      try {
+         使用本地大模型进行更深入的意图分析
+        const intentResponse = await axios.post(this.aiApiUrl, {
+          model 'deepseek-r132b',
+          messages [{
+            role 'user',
+            content `你现在是一个知识图谱查询意图分析器。请分析以下用户问题，判断用户想要查询的实体和查询类型。
+
+问题 ${userMessage}
+
+请以JSON格式返回分析结果，包含以下字段：
+{
+  intent entity_info,  可能的值 entity_info, relationship_info, attribute_info, general_question
+  entities [实体名称],  数组，可能包含多个实体
+  requiresKnowledgeGraph true,  布尔值，表示是否需要查询知识图谱
+  confidence 0.9  0-1之间的数字，表示分析的置信度
+}
+
+其中：
+- entity_info 用户询问某个实体的基本信息，例如张三是谁、王海洋的信息、介绍一下李四、你知道王海洋吗
+- relationship_info 用户询问实体间的关系，例如张三和李四是什么关系
+- attribute_info 用户询问实体的某个具体属性，例如张三的年龄、王海洋的学校
+- general_question 一般性问题，不需要查询知识图谱
+
+重要提示：即使问题表述方式不同，只要是询问实体的信息，都应判断为entity_info。例如王海洋是谁、王海洋的信息、介绍王海洋、你知道王海洋吗等都应判断为entity_info，并将王海洋提取为实体。`
+          }]
+        }, {
+          responseType 'text'
+        });
+        
+         解析结果
+        const analysis = this.extractJSONFromResponse(intentResponse.data);
+        
+        if (analysis) {
+          console.log(大模型意图分析结果, analysis);
+          return analysis;
+        }
+        
+         如果大模型分析失败，回退到规则匹配
+        return this.fallbackIntentAnalysis(userMessage);
+      } catch (error) {
+        console.error(意图分析失败, error);
+        return this.fallbackIntentAnalysis(userMessage);
+      }
+    },
+
+     从LLM回复中提取JSON
+    extractJSONFromResponse(response) {
+      try {
+         使用正则表达式查找JSON部分
+        const jsonMatch = response.match({[sS]});
+        if (jsonMatch) {
+          return JSON.parse(jsonMatch[0]);
+        }
+        
+         如果找不到完整JSON，尝试从分块响应中解析
+        const lines = response.split('n');
+        for (const line of lines) {
+          try {
+            const data = JSON.parse(line);
+            if (data.message.content) {
+              const contentJsonMatch = data.message.content.match({[sS]});
+              if (contentJsonMatch) {
+                return JSON.parse(contentJsonMatch[0]);
+              }
+            }
+          } catch (e) {
+             忽略解析错误，继续检查下一行
+          }
+        }
+        
+        return null;
+      } catch (error) {
+        console.error(JSON提取失败, error);
+        return null;
+      }
+    },
+
+     回退到规则匹配
+    fallbackIntentAnalysis(userMessage) {
+      console.log(使用规则匹配分析意图);
+      const analysis = {
+        intent general_question,
+        entities [],
+        requiresKnowledgeGraph false,
+        confidence 0.5
+      };
+      
+       扩展实体提取规则集
+      const entityPatterns = [
+        { pattern (.)(是谁是什么), intent entity_info },
+        { pattern (.)(的信息的资料的详情的介绍), intent entity_info },
+        { pattern (介绍认识了解知道)(.)(吗), intent entity_info },
+        { pattern (谁是什么是)(.), intent entity_info },
+        { pattern (.)(和与)(.)(的)(关系关联), intent relationship_info },
+        { pattern (.)(的)(属性特征特点数据), intent attribute_info },
+        { pattern (关于查询查找)(.)(的)(信息资料数据), intent entity_info }
+      ];
+      
+       关键词列表 - 用于判断是否可能需要知识图谱
+      const kgKeywords = [
+        '是谁', '是什么', '信息', '资料', '详情', '介绍', 
+        '认识', '了解', '知道', '谁是', '什么是',
+        '关系', '关联', '属性', '特征', '特点', '数据'
+      ];
+      
+       检查每个模式
+      for (const {pattern, intent} of entityPatterns) {
+        const match = userMessage.match(pattern);
+        if (match) {
+           找到匹配的模式
+          analysis.intent = intent;
+          analysis.requiresKnowledgeGraph = true;
+          analysis.confidence = 0.7;  规则匹配给一个中等置信度
+          
+           提取匹配到的实体，并去除可能的标点符号
+          if (match[1]) {
+            const entity = match[1].trim().replace([？.,，。!！]g, '');
+            if (entity && entity.length = 2) {
+              analysis.entities.push(entity);
+            }
+          }
+          if (match[2]) {
+            const entity = match[2].trim().replace([？.,，。!！]g, '');
+            if (entity && entity.length = 2) {
+              analysis.entities.push(entity);
+            }
+          }
+          
+          break;
+        }
+      }
+      
+       如果没有匹配模式但包含关键词，可能仍然需要知识图谱
+      if (analysis.intent === general_question) {
+         检查是否包含知识图谱相关关键词
+        const hasKgKeyword = kgKeywords.some(keyword = userMessage.includes(keyword));
+        
+        if (hasKgKeyword) {
+           尝试提取可能的实体名称（中文或英文短语）
+          const entityMatches = userMessage.match([u4e00-u9fa5a-zA-Z]{2,}g)  [];
+          const possibleEntities = entityMatches
+            .filter(e = !kgKeywords.includes(e) && e.length = 2)
+            .slice(0, 2);  最多取前两个
+          
+          if (possibleEntities.length  0) {
+            analysis.entities = possibleEntities;
+            analysis.intent = entity_info;  默认为实体查询
+            analysis.requiresKnowledgeGraph = true;
+            analysis.confidence = 0.6;  不太确定的匹配
+          }
+        }
+      }
+      
+      console.log(规则匹配分析结果, analysis);
+      return analysis;
+    },
+
+     根据意图生成Neo4j查询
+    generateKGQuery(intentAnalysis) {
+      if (!intentAnalysis  !intentAnalysis.requiresKnowledgeGraph  
+          intentAnalysis.entities.length === 0) {
+        return null;
+      }
+      
+      const entity = intentAnalysis.entities[0];
+      const secondEntity = intentAnalysis.entities[1];
+      let query = '';
+      
+       适配新的意图类型
+      switch (intentAnalysis.intent) {
+        case entity_info  通用实体信息查询
+          query = `
+            MATCH (n {name $entityName})
+            OPTIONAL MATCH (n)-[r]-(m)
+            RETURN n, r, m
+          `;
+          break;
+          
+        case relationship_info  关系查询
+          if (secondEntity) {
+            query = `
+              MATCH (n {name $entityName})-[r]-(m {name $secondEntity})
+              RETURN n, r, m
+            `;
+          } else {
+            query = `
+              MATCH (n {name $entityName})-[r]-(m)
+              RETURN n, r, m
+            `;
+          }
+          break;
+          
+        case attribute_info  属性查询
+          query = `
+            MATCH (n {name $entityName})
+            RETURN n
+          `;
+          break;
+          
+        default  默认的模糊查询
+          query = `
+            MATCH (n)
+            WHERE n.name CONTAINS $entityName OR toLower(n.name) CONTAINS toLower($entityName)
+            OPTIONAL MATCH (n)-[r]-(m)
+            RETURN n, r, m
+            LIMIT 10
+          `;
+      }
+      
+      console.log(`生成查询 ${query} [实体 ${entity}]`);
+      return { query, parameters { entityName entity, secondEntity } };
+    },
+
+     执行知识图谱查询
+    async executeKGQuery(queryInfo) {
+      if (!queryInfo) return null;
+      
+      try {
+        console.log(执行知识图谱查询, queryInfo);
+        
+         直接查询 API
+        const response = await axios.post(`${this.apiBaseUrl}query`, {
+          query queryInfo.query,
+          parameters queryInfo.parameters
+        });
+        
+        console.log(查询结果, response.data);
+        
+         添加来源标记
+        if (response.data) {
+          response.data._source = 'neo4j_query';
+        }
+        
+        return response.data;
+      } catch (error) {
+        console.error(知识图谱查询失败, error);
+        
+         尝试直接通过节点名查询 API
+        const entityName = queryInfo.parameters.entityName;
+        try {
+          console.log(`尝试直接查询节点 ${entityName}`);
+          const directResponse = await axios.get(`${this.apiBaseUrl}${entityName}`);
+          console.log(直接查询结果, directResponse.data);
+          const formattedResult = this.formatDirectQueryResult(directResponse.data);
+          
+           添加来源标记
+          if (formattedResult) {
+            formattedResult._source = 'direct';
+          }
+          
+          return formattedResult;
+        } catch (directError) {
+          console.error(直接查询也失败, directError);
+          return null;
+        }
+      }
+    },
+
+     格式化直接查询结果为统一格式
+    formatDirectQueryResult(data) {
+      if (!data  !Array.isArray(data)  data.length === 0) return null;
+      
+      const result = {
+        nodes [],
+        relationships [],
+        _source 'direct'  添加来源标记
+      };
+      
+       处理节点
+      const nodeMap = new Map();
+      
+      data.forEach(item = {
+         处理 node1
+        if (item.node1 && item.node1.name) {
+          const nodeId = `n1_${item.node1.name}`;
+          if (!nodeMap.has(nodeId)) {
+            nodeMap.set(nodeId, true);
+            result.nodes.push({
+              id nodeId,
+              name item.node1.name,
+              labels ['Entity'],  添加默认标签
+              properties item.node1
+            });
+          }
+        }
+        
+         处理 node2
+        if (item.node2 && item.node2.name) {
+          const nodeId = `n2_${item.node2.name}`;
+          if (!nodeMap.has(nodeId)) {
+            nodeMap.set(nodeId, true);
+            result.nodes.push({
+              id nodeId,
+              name item.node2.name,
+              labels ['Entity'],  添加默认标签
+              properties item.node2
+            });
+          }
+        }
+        
+         处理关系
+        if (item.relationship && item.node1 && item.node2) {
+          result.relationships.push({
+            id `r_${result.relationships.length}`,
+            type item.relationship,
+            startNode `n1_${item.node1.name}`,
+            endNode `n2_${item.node2.name}`,
+            properties {}
+          });
+        }
+      });
+      
+      return result;
+    },
+
+     发送消息
+    async sendMessage() {
+      const userMessage = this.userInput.trim();
+      if (!userMessage  this.isTyping) return;
+
+       添加用户消息
+      this.chatMessages.push({
+        role 'user',
+        content userMessage
+      });
+
+      this.userInput = '';
+      this.isTyping = true;
+
+      try {
+         1. 首先尝试从用户消息中提取所有可能的实体
+        const potentialEntities = await this.extractPotentialEntities(userMessage);
+        console.log(识别到的潜在实体, potentialEntities);
+        
+         变量用于跟踪是否找到了知识图谱信息
+        let knowledgeContext = '';
+        let entityUsed = '';
+        let kgResult = null;
+        
+         2. 如果找到了潜在实体，尝试查询每个实体
+        if (potentialEntities.length  0) {
+           按照置信度排序，先查询最可能的实体
+          for (const entity of potentialEntities) {
+            console.log(`尝试查询实体 ${entity.name} (置信度 ${entity.confidence})`);
+            
+             尝试直接查询实体
+            try {
+              const directResponse = await axios.get(`${this.apiBaseUrl}${entity.name}`);
+              if (directResponse.data && directResponse.data.length  0) {
+                console.log(`成功找到实体 ${entity.name}`);
+                kgResult = this.formatDirectQueryResult(directResponse.data);
+                entityUsed = entity.name;
+                break;  找到一个实体就停止查询
+              }
+            } catch (error) {
+              console.log(`实体 ${entity.name} 直接查询失败 ${error.message}`);
+            }
+            
+             如果直接查询失败，尝试模糊查询
+            if (!kgResult) {
+              try {
+                console.log(`尝试模糊查询实体 ${entity.name}`);
+                const semanticResponse = await axios.post(
+                  `${this.apiBaseUrl}semantic-search`,
+                  { question userMessage }
+                );
+                
+                if (semanticResponse.data && 
+                    semanticResponse.data.nodes && 
+                    semanticResponse.data.nodes.length  0) {
+                  console.log(`成功找到相关实体数据`);
+                  kgResult = semanticResponse.data;
+                  kgResult._source = 'semantic';
+                  entityUsed = entity.name;
+                  break;
+                }
+              } catch (error) {
+                console.log(`实体 ${entity.name} 模糊查询失败 ${error.message}`);
+              }
+            }
+          }
+        }
+        
+         3. 如果找到了知识图谱数据，生成上下文
+        if (kgResult && (kgResult.nodes.length  0  kgResult.relationships.length  0)) {
+          knowledgeContext = this.formatKnowledgeGraphResults(kgResult);
+          console.log(知识图谱上下文, knowledgeContext);
+        }
+        
+         4. 构建提示词
+        let prompt;
+        if (knowledgeContext) {
+          prompt = `你是一个知识图谱增强的智能助手。请基于以下知识图谱信息回答用户问题。
+          
+知识图谱信息
+${knowledgeContext}
+
+用户问题 ${userMessage}
+
+注意
+1. 你的回答必须基于知识图谱中提供的信息
+2. 不要添加知识图谱中没有的信息
+3. 以自然流畅的方式回答，不要直接列出知识图谱的原始数据
+4. 如果知识图谱中的信息不足以回答问题，请说明`;
+        } else {
+           如果没有找到知识图谱数据，告知用户
+          prompt = `抱歉，我在知识图谱中没有找到与您问题相关的信息。您可以尝试换个方式提问，或者告诉我您具体想了解什么？`;
+        }
+        
+         5. 调用大模型生成回答
+        const response = await axios.post(this.aiApiUrl, {
+          model 'deepseek-r132b',
+          messages [{
+            role 'user',
+            content prompt
+          }]
+        }, {
+          responseType 'text'
+        });
+        
+         6. 处理响应
+        const lines = response.data.split('n');
+        let fullMessage = '';
+        
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          
+          try {
+            const data = JSON.parse(line);
+            if (data.message.content) {
+              fullMessage += data.message.content;
+            }
+          } catch (e) {
+             忽略解析错误
+          }
+        }
+        
+         7. 添加AI回复
+        await this.typeMessage(fullMessage, {
+          source knowledgeContext  'knowledge_graph'  'model',
+          queryDetails this.debug  {
+            userMessage,
+            entitiesExtracted potentialEntities.map(e = e.name),
+            entityUsed,
+            kgResult kgResult  {
+              source kgResult._source  'unknown',
+              nodeCount kgResult.nodes.length  0,
+              relationshipCount kgResult.relationships.length  0
+            }  null,
+            knowledgeContext knowledgeContext  'present'  'none',
+            promptLength prompt.length
+          }  null
+        });
+        
+      } catch (error) {
+        console.error('处理消息时出错', error);
+        this.showError(error);
+      } finally {
+        this.isTyping = false;
+      }
+    },
+
+     添加新的方法：从用户消息中提取所有可能的实体
+    async extractPotentialEntities(message) {
+      const entities = [];
+      
+       方法1 通过大模型提取实体
+      try {
+        const response = await axios.post(this.aiApiUrl, {
+          model 'deepseek-r132b',
+          messages [{
+            role 'user',
+            content `你是一个实体提取专家。请从以下文本中提取出所有可能的命名实体（人名、地名、组织名、专有名词等）：
+
+${message}
+
+请以JSON格式返回结果，格式为：
+{
+  entities [
+    {name 实体1, type 实体类型, confidence 0.9},
+    {name 实体2, type 实体类型, confidence 0.8},
+    ...
+  ]
+}
+
+其中confidence表示置信度，1表示非常确定，0表示完全不确定。
+重要提示：1. 提取尽可能多的实体；2. 只输出JSON，不要有其他内容`
+          }]
+        }, {
+          responseType 'text'
+        });
+        
+         提取JSON结果
+        const jsonData = this.extractJSONFromResponse(response.data);
+        if (jsonData && jsonData.entities && Array.isArray(jsonData.entities)) {
+          jsonData.entities.forEach(entity = {
+            if (entity.name && entity.name.length = 2) {
+              entities.push({
+                name entity.name,
+                type entity.type  'unknown',
+                confidence entity.confidence  0.5,
+                source 'llm'
+              });
+            }
+          });
+        }
+      } catch (error) {
+        console.error(大模型实体提取失败, error);
+      }
+      
+       方法2 通过规则提取中文名词短语
+      try {
+         中文名词短语通常为2-10个汉字
+        const chineseNamePattern = [u4e00-u9fa5]{2,10}g;
+        const chineseMatches = message.match(chineseNamePattern)  [];
+        
+         过滤掉常见的停用词和问候语
+        const stopWords = ['您好', '请问', '谢谢', '知道', '了解', '什么', '怎么', '为什么', '如何', '是谁'];
+        
+        chineseMatches
+          .filter(word = !stopWords.includes(word) && word.length = 2)
+          .forEach(word = {
+             检查是否已经通过大模型添加
+            if (!entities.some(e = e.name === word)) {
+              entities.push({
+                name word,
+                type 'unknown',
+                confidence 0.6,
+                source 'rule'
+              });
+            }
+          });
+      } catch (error) {
+        console.error(规则实体提取失败, error);
+      }
+      
+       方法3 添加完整的句子分析
+       有时整个句子可能是对某个实体的询问
+      const questionTypes = [
+        {pattern 有哪些, confidence 0.5},
+        {pattern 是什么, confidence 0.5},
+        {pattern 有什么, confidence 0.5}
+      ];
+      
+      for (const {pattern, confidence} of questionTypes) {
+        if (pattern.test(message)) {
+           将去除问题词后的内容也视为可能的实体
+          const potentialEntity = message.replace(pattern, '').trim()
+                               .replace([？.,，。!！]g, '');
+          
+          if (potentialEntity.length = 2 && !entities.some(e = e.name === potentialEntity)) {
+            entities.push({
+              name potentialEntity,
+              type 'composite',
+              confidence confidence,
+              source 'sentence'
+            });
+          }
+        }
+      }
+      
+       按置信度排序
+      return entities.sort((a, b) = b.confidence - a.confidence);
+    },
+
+     添加新的方法，专门用于格式化知识图谱结果
+    formatKnowledgeGraphResults(data) {
+      let context = '';
+      
+       格式化节点信息
+      if (data.nodes && data.nodes.length  0) {
+        context += '实体信息n';
+        
+        data.nodes.forEach(node = {
+           添加节点名称和标签
+          context += `- ${node.name}`;
+          if (node.labels && node.labels.length  0) {
+            context += ` (${node.labels.join(', ')})`;
+          }
+          context += 'n';
+          
+           添加属性信息
+          Object.entries(node.properties).forEach(([key, value]) = {
+            if (key !== 'name') {  跳过名称属性，因为已经显示了
+              context += `  ${key} ${value}n`;
+            }
+          });
+        });
+      }
+      
+       格式化关系信息
+      if (data.relationships && data.relationships.length  0) {
+        context += 'n关系信息n';
+        
+        data.relationships.forEach(rel = {
+           找到关系的起始和终止节点
+          const startNode = data.nodes.find(n = n.id === rel.startNode);
+          const endNode = data.nodes.find(n = n.id === rel.endNode);
+          
+          if (startNode && endNode) {
+            context += `- ${startNode.name} → [${rel.type}] → ${endNode.name}n`;
+            
+             如果关系有属性，也添加进来
+            if (rel.properties && Object.keys(rel.properties).length  0) {
+              context += `  关系属性 `;
+              Object.entries(rel.properties).forEach(([key, value], index, arr) = {
+                context += `${key} ${value}${index  arr.length - 1  ', '  ''}`; 
+              });
+              context += 'n';
+            }
+          }
+        });
+      }
+      
+      return context;
+    },
+
+     打字机效果
+    async typeMessage(message, metadata = {}) {
+      const tempMessage = {
+        role 'assistant',
+        content '',
+        ...metadata
+      };
+      this.chatMessages.push(tempMessage);
+
+      for (let i = 0; i  message.length; i++) {
+        await new Promise(resolve = setTimeout(resolve, this.typingSpeed));
+        tempMessage.content += message[i];
+        this.$forceUpdate();
+        
+        this.$nextTick(() = {
+          const chatMessages = this.$refs.chatMessages;
+          if (chatMessages) {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+          }
+        });
+      }
+    },
+
+     格式化消息
+    formatMessage(content) {
+      try {
+        return marked(content  '');
+      } catch (error) {
+        console.error('格式化消息时出错', error);
+        return content;
+      }
+    },
+
+     切换调试模式
+    toggleDebug() {
+      this.debug = !this.debug;
+    },
+
+     显示错误
+    showError(error) {
+      const errorMessage = error.response.data.message  error.message;
+      const errorDetails = this.debug  `nn调试信息：${JSON.stringify(error.response.data  error, null, 2)}`  '';
+      
+      this.typeMessage(`抱歉，处理您的请求时出现错误：${errorMessage}${errorDetails}`, {
+        source 'error'
+      });
+    },
+
+    async testDatabaseConnection() {
+      try {
+        console.log(测试Neo4j数据库连接...);
+        
+         先简单测试数据库连接
+        const testQuery = MATCH (n) RETURN n.name LIMIT 5;
+        const testResponse = await axios.post(
+          `${this.apiBaseUrl}query`, 
+          { query testQuery }
+        );
+        
+        console.log(数据库测试查询结果, testResponse.data);
+        
+        if (testResponse.data && 
+            testResponse.data.nodes && 
+            testResponse.data.nodes.length  0) {
+          
+          console.log(数据库连接正常，找到节点, 
+                     testResponse.data.nodes.map(n = n.name).join(', '));
+          
+          this.isConnected = true;
+          
+           添加数据库连接成功消息
+          this.chatMessages.push({
+            role 'assistant',
+            content '✅ 已连接到知识图谱数据库，您可以询问关于知识图谱中实体的信息。',
+            source 'system'
+          });
+          
+           测试查找特定节点
+          const entityToTest = 王海洋;
+          console.log(`测试查询具体实体 ${entityToTest}`);
+          
+          const entityResponse = await axios.post(
+            `${this.apiBaseUrl}semantic-search`,
+            { question `${entityToTest}是谁` }
+          );
+          
+          console.log(`实体测试查询结果`, entityResponse.data);
+          
+          if (entityResponse.data && 
+              entityResponse.data.nodes && 
+              entityResponse.data.nodes.length  0) {
+            console.log(`成功找到实体 ${entityToTest}`);
+          } else {
+            console.warn(`未找到实体 ${entityToTest}`);
+          }
+          
+        } else {
+          console.warn(数据库连接正常，但未找到任何节点);
+          this.isConnected = true;
+        }
+      } catch (error) {
+        console.error(数据库连接测试失败, error);
+        this.isConnected = false;
+        
+         添加一条系统消息
+        this.chatMessages.push({
+          role 'assistant',
+          content '⚠️ 无法连接到知识图谱数据库，将使用纯大模型回答问题',
+          source 'system'
+        });
+      }
+    },
+
+    async showAllNodes() {
+      try {
+        this.isTyping = true;
+        const response = await axios.get(`${this.apiBaseUrl}`);
+        
+        if (response.data && response.data.length  0) {
+          let message = 知识图谱中的实体nn;
+          
+           收集所有唯一的节点
+          const nodes = new Set();
+          response.data.forEach(item = {
+            if (item.node1 && item.node1.name) nodes.add(item.node1.name);
+            if (item.node2 && item.node2.name) nodes.add(item.node2.name);
+          });
+          
+          Array.from(nodes).sort().forEach(name = {
+            message += `- ${name}n`;
+          });
+          
+          await this.typeMessage(message, { source 'system' });
+        } else {
+          await this.typeMessage(知识图谱中暂无实体数据。, { source 'system' });
+        }
+      } catch (error) {
+        console.error(获取所有节点失败, error);
+        await this.typeMessage(`获取节点列表失败 ${error.response.data.message  error.message}`, { source 'error' });
+      } finally {
+        this.isTyping = false;
+      }
+    }
+  }
+};
+script
+
+style scoped
+.ai-assistant-container {
+  display flex;
+  flex-direction column;
+  height 100vh;
+  background #f5f7fa;
+}
+
+.chat-header {
+  padding 20px;
+  background white;
+  border-bottom 1px solid #eee;
+  display flex;
+  justify-content space-between;
+  align-items center;
+}
+
+.header-left {
+  display flex;
+  flex-direction column;
+  gap 4px;
+}
+
+.header-left h3 {
+  margin 0;
+  font-size 18px;
+  color #333;
+}
+
+.model-info {
+  font-size 12px;
+  color #666;
+}
+
+.status-indicator {
+  display flex;
+  align-items center;
+  gap 6px;
+  font-size 14px;
+  color #666;
+}
+
+.status-indicator.active {
+  color #4caf50;
+}
+
+.chat-messages {
+  flex 1;
+  padding 20px;
+  overflow-y auto;
+  display flex;
+  flex-direction column;
+  gap 16px;
+}
+
+.message {
+  max-width 85%;
+  margin-bottom 8px;
+}
+
+.message.user {
+  align-self flex-end;
+}
+
+.message.assistant {
+  align-self flex-start;
+}
+
+.message-content {
+  padding 16px;
+  border-radius 12px;
+  background white;
+  box-shadow 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.message.user .message-content {
+  background #e3f2fd;
+}
+
+.message-header {
+  display flex;
+  justify-content space-between;
+  align-items center;
+  margin-bottom 8px;
+}
+
+.message-role {
+  display flex;
+  align-items center;
+  gap 8px;
+  font-size 14px;
+  color #666;
+}
+
+.message-source {
+  display flex;
+  align-items center;
+  gap 4px;
+  font-size 12px;
+  color #1976d2;
+  background #e3f2fd;
+  padding 4px 8px;
+  border-radius 4px;
+}
+
+.query-details {
+  margin-top 12px;
+  padding 12px;
+  background #f8f9fa;
+  border-radius 6px;
+  font-size 12px;
+}
+
+.debug-panel {
+  padding 16px;
+  background #f8f9fa;
+  border-top 1px solid #eee;
+  font-size 12px;
+  max-height 200px;
+  overflow-y auto;
+}
+
+.debug-section {
+  margin-bottom 12px;
+}
+
+.debug-section h4 {
+  margin 0 0 8px 0;
+  font-size 14px;
+  color #666;
+}
+
+.debug-section pre {
+  margin 0;
+  padding 8px;
+  background white;
+  border-radius 4px;
+  white-space pre-wrap;
+}
+
+.chat-input {
+  padding 16px;
+  background white;
+  border-top 1px solid #eee;
+}
+
+.chat-input textarea {
+  width 100%;
+  padding 12px;
+  border 2px solid #e6e8eb;
+  border-radius 8px;
+  resize none;
+  height 80px;
+  font-family inherit;
+  margin-bottom 12px;
+  transition all 0.3s;
+}
+
+.chat-input textareafocus {
+  border-color #1976d2;
+  outline none;
+  box-shadow 0 0 0 3px rgba(25, 118, 210, 0.1);
+}
+
+.chat-input button {
+  width 100%;
+  padding 12px;
+  border none;
+  border-radius 8px;
+  background #1976d2;
+  color white;
+  font-weight 500;
+  cursor pointer;
+  transition all 0.2s;
+  display flex;
+  align-items center;
+  justify-content center;
+  gap 8px;
+}
+
+.chat-input buttonhover {
+  background #1565c0;
+}
+
+.chat-input buttondisabled {
+  background #e0e0e0;
+  cursor not-allowed;
+}
+
+.typing-indicator {
+  display flex;
+  gap 4px;
+  padding 12px;
+  background white;
+  border-radius 12px;
+  box-shadow 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.typing-indicator span {
+  width 8px;
+  height 8px;
+  background #1976d2;
+  border-radius 50%;
+  animation bounce 1.4s infinite ease-in-out;
+}
+
+.typing-indicator spannth-child(1) { animation-delay -0.32s; }
+.typing-indicator spannth-child(2) { animation-delay -0.16s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform scale(0); }
+  40% { transform scale(1); }
+}
+
+.message-content.system {
+  background #fff3cd;
+  border 1px solid #ffecb5;
+  color #856404;
+}
+
+.message-source.knowledge-graph {
+  color #28a745;
+  background #d4edda;
+}
+
+.message-source.model-only {
+  color #17a2b8;
+  background #d1ecf1;
+}
+
+.message-source.error {
+  color #dc3545;
+  background #f8d7da;
+}
+
+.action-button {
+  background transparent;
+  border 1px solid #ddd;
+  border-radius 4px;
+  color #666;
+  cursor pointer;
+  display flex;
+  align-items center;
+  justify-content center;
+  padding 6px;
+  margin-right 8px;
+  transition all 0.2s;
+}
+
+.action-buttonhover {
+  background #f0f0f0;
+  color #1976d2;
+}
+
+.header-right {
+  display flex;
+  align-items center;
+  gap 8px;
+}
+style 在我现在代码的基础上，你要改进两点，1.比如语义搜索请求收到 你给我介绍一下鎏金天王铜造像
+提取的实体名称 你给我介绍一下鎏金天王铜造像
+执行精确查询 MATCH (n {name 你给我介绍一下鎏金天王铜造像}) ...
+精确查询结果记录数 0
+尝试模糊匹配 MATCH (n) WHERE n.name CONTAINS 你给我介绍一下鎏金天王铜造像 ...
+模糊查询结果记录数 0
+未找到任何匹配的节点
+响应内容 {nodes[],relationships[]}这个后台日志，显示在大模型提取实体时，并没有在“你给我介绍一下鎏金天王铜造像”中提取到我想要的“鎏金天王铜造像”信息，你要改进提取实体的方法，使用大模型进行实体的提取再从知识图谱获取信息，2.在知识图谱回答时候含有思考过程，我希望在我的回答过程中可以有个折叠思考过程的功能，就像chatbox中与大模型对话的形式，思考过程在thinkthink中，还可以点击折叠不去看这个思考过程。
