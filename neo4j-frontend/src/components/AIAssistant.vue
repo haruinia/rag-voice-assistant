@@ -1520,7 +1520,7 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
   padding: 10px 15px;
   font-size: 0.95rem;
   line-height: 1.5;
-  resize: none; /* 禁止手动调整大小 */
+  resize: none; /* 禁止手动调整qwe大小 */
   max-height: 150px; /* 限制最大高度 */
   overflow-y: auto; /* 超出时滚动 */
   transition: border-color 0.3s, box-shadow 0.3s;
