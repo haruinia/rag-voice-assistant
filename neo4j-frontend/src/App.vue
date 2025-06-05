@@ -9,6 +9,10 @@
         <i class="fas fa-robot"></i>
         基于知识增强大模型的文物保护领域智能助手
       </router-link>
+       <router-link to="/ai-chat-tts" class="nav-item" active-class="active">
+        <i class="fas fa-robot"></i>
+        基于TTS知识增强大模型的文物保护领域智能助手
+      </router-link>
     </nav>  
     <main class="main-content">
       <router-view></router-view>
