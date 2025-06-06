@@ -1,1155 +1,1765 @@
-template
-  div class=ai-assistant-container
-    div class=chat-header
-      div class=header-left
-        h3智能知识助手h3
-        span class=model-infoModel deepseek-r132bspan
-      div
-      div class=header-right
-        button @click=showAllNodes class=action-button title=查看知识库
-          i class=fas fa-databasei
-        button
-        span class=status-indicator class={ active isConnected }
-          {{ isConnected  '已连接'  '未连接' }}
-        span
-        button 
-          @click=toggleDebug 
-          class=debug-toggle
-          class={ active debug }
-        
-          i class=fas fa-bugi
-        button
-      div
-    div
+<template>
+  <div class="voice-chat-container">
+    <!-- 背景动画容器 -->
+    <div class="background-animation" ref="backgroundAnimation"></div>
 
-    div class=chat-messages ref=chatMessages
-      div v-for=(message, index) in chatMessages 
-           key=index
-           class=['message', message.role]
-        div class=message-content
-          div class=message-header
-            div class=message-role
-              i class=message.role === 'assistant'  'fas fa-robot'  'fas fa-user'i
-              span{{ message.role === 'assistant'  'AI 助手'  '您' }}span
-            div
-            div v-if=message.source 
-                 class=['message-source', {
-                   'knowledge-graph' message.source === 'knowledge_graph',
-                   'model-only' message.source === 'model',
-                   'error' message.source === 'error'
-                 }]
-              i class=message.source === 'knowledge_graph'  'fas fa-database'  
-                        message.source === 'error'  'fas fa-exclamation-triangle'  'fas fa-robot'i
-              span{{ message.source === 'knowledge_graph'  '基于知识图谱'  
-                       message.source === 'error'  '错误信息'  '仅基于模型' }}span
-            div
-          div
-          div class=message-text v-html=formatMessage(message.content)div
-          div v-if=message.queryDetails && debug class=query-details
-            pre{{ JSON.stringify(message.queryDetails, null, 2) }}pre
-          div
-        div
-      div
-      
-      div v-if=isTyping class=message assistant
-        div class=typing-indicator
-          spanspan
-          spanspan
-          spanspan
-        div
-      div
-    div
+    <!-- 1. 顶部状态栏 (原 chat-header) -->
+    <div class="status-bar">
+      <div class="status-left">
+        <div class="ai-avatar">
+          <i class="fas fa-robot"></i>
+        </div>
+        <div class="ai-info">
+          <h3>文物领域智能语音助手</h3>
+          <div class="ai-status">
+            <span class="status-dot"></span>
+            <span id="connection-status">模型：{{ llmModel }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="status-right">
+        <!-- 查看知识库按钮 -->
+        <button @click="showAllNodes" class="control-btn" title="查看知识库所有实体">
+          <i class="fas fa-database"></i>
+        </button>
+        <!-- TTS 开关按钮 -->
+        <button @click="toggleTTS"
+                class="control-btn tts-toggle"
+                :class="{ active: isTTSEnabled }"
+                :title="isTTSEnabled ? '关闭语音播报' : '开启语音播报'">
+          <i :class="isTTSEnabled ? 'fas fa-volume-up' : 'fas fa-volume-mute'"></i>
+        </button>
+        <!-- 连接状态指示器 (作为按钮的一部分，或独立显示) -->
+        <button class="control-btn" :class="{ active: isConnected, 'not-supported': !isConnected }" :title="isConnected ? '知识库已连接' : '知识库未连接'" disabled>
+          <i :class="isConnected ? 'fas fa-check-circle' : 'fas fa-times-circle'"></i>
+        </button>
+        <!-- 调试模式切换按钮 -->
+        <button
+          @click="toggleDebug"
+          class="control-btn debug-toggle"
+          :class="{ active: debug }"
+          title="切换调试信息显示"
+        >
+          <i class="fas fa-bug"></i>
+        </button>
+      </div>
+    </div>
 
-    div v-if=debug class=debug-panel
-      div class=debug-section
-        h4查询分析h4
-        pre{{ currentAnalysis }}pre
-      div
-      div class=debug-section
-        h4知识图谱查询h4
-        pre{{ currentQuery }}pre
-      div
-    div
+    <!-- 2. 聊天消息区域 (作为主要内容区) -->
+    <div class="chat-messages" ref="chatMessages">
+      <div v-for="(message, index) in chatMessages"
+           :key="index"
+           :class="['conversation-item', message.role]">
+        <div :class="['conversation-text']">
+          <!-- 消息头部，如果需要可以在这里显示，否则直接显示文本 -->
+          <div class="message-header-new">
+            <div class="message-role-new">
+              <i :class="getRoleIcon(message.role)"></i>
+              <span>{{ getRoleName(message.role) }}</span>
+            </div>
+            <div v-if="message.source && message.role === 'assistant'"
+                 :class="['message-source-new', `source-${message.source}`]">
+              <i :class="getSourceIcon(message.source)"></i>
+              <span>{{ getSourceName(message.source) }}</span>
+            </div>
+          </div>
+          <details v-if="message.role === 'assistant' && message.hasThinking" class="thinking-steps-new">
+            <summary>
+              <i class="fas fa-brain"></i> 思考过程 <i class="fas fa-chevron-down details-arrow"></i>
+            </summary>
+            <pre class="thinking-steps-content-new">{{ message.thinkingContent || '无详细思考过程记录。' }}</pre>
+          </details>
+          <div class="message-text-new" v-html="formatMessage(message.mainContent || message.content)"></div>
+          <div v-if="message.queryDetails && debug" class="query-details debug-only">
+             <strong>原始查询详情 (Debug):</strong>
+            <pre>{{ JSON.stringify(message.queryDetails, null, 2) }}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
 
-    div class=chat-input
-      textarea 
-        v-model=userInput
-        @keydown.enter.prevent=sendMessage
-        placeholder=输入您的问题...
-        disabled=isTyping
-      textarea
-      button 
-        @click=sendMessage
-        disabled=isTyping  !userInput.trim()
-      
-        i class=fas fa-paper-planei
-      button
-    div
-  div
-template
+    <!-- 3. 语音可视化叠加层 (当语音交互时显示) -->
+    <transition name="voice-overlay-fade">
+      <div class="voice-overlay" v-if="isListening || isTyping">
+        <div class="voice-visualizer">
+          <button class="voice-button"
+                  :class="{ listening: isListening, speaking: isTyping && !isListening && isSpeakingOnlyTTS }"
+                  @click="toggleListening"
+                  :disabled="!speechRecognitionSupported">
+            <i :class="getVoiceOverlayIcon"></i>
+            <div class="voice-waves" :class="{ active: isListening || (isTyping && !isSpeakingOnlyTTS) || isSpeakingOnlyTTS }">
+              <div class="wave-bar"></div>
+              <div class="wave-bar"></div>
+              <div class="wave-bar"></div>
+              <div class="wave-bar"></div>
+              <div class="wave-bar"></div>
+            </div>
+          </button>
+        </div>
+        <div class="status-text" id="status-text">
+            <span v-if="isListening">正在听取您的语音...</span>
+            <span v-else-if="isTyping && !isSpeakingOnlyTTS">
+                正在思考
+                <div class="loading-dots">
+                    <div class="loading-dot"></div><div class="loading-dot"></div><div class="loading-dot"></div>
+                </div>
+            </span>
+            <span v-else-if="isSpeakingOnlyTTS">正在为您播报回答...</span>
+            <span v-else>点击麦克风开始语音对话</span>
+        </div>
+        <div class="interim-text" id="interim-text">{{ interimTranscript ? `"${interimTranscript}"` : (isListening ? '请开始说话' : '') }}</div>
+      </div>
+    </transition>
 
-script
+    <!-- 4. 旧调试信息面板 (仅在 debug 模式下显示) -->
+    <div v-if="debug" class="debug-panel debug-only">
+      <div class="debug-section">
+        <h4>当前分析 (旧 Debug)</h4>
+        <pre>{{ currentAnalysis || '无' }}</pre>
+      </div>
+      <div class="debug-section">
+        <h4>当前查询 (旧 Debug)</h4>
+        <pre>{{ currentQuery || '无' }}</pre>
+      </div>
+    </div>
+
+    <!-- 5. 聊天输入区域 (原 chat-input) -->
+    <div class="bottom-controls">
+       <button
+        @click="toggleListening"
+        :class="['bottom-btn', 'mic-button-small', { active: isListening, 'not-supported': !speechRecognitionSupported }]"
+        :title="speechRecognitionSupported ? (isListening ? '停止录音' : '开始录音 (语音输入)') : '语音输入不受支持'"
+        :disabled="isTyping || !speechRecognitionSupported"
+      >
+        <i :class="isListening ? 'fas fa-microphone-slash' : 'fas fa-microphone'"></i>
+         <span>语音输入</span>
+      </button>
+      <textarea
+        v-model="userInput"
+        @keydown="handleKeydown"
+        placeholder="请输入您的问题或点击麦克风说话..."
+        :disabled="isTyping || isListening"
+        ref="userInputArea"
+        rows="1"
+        @input="autoGrowTextarea"
+      ></textarea>
+      <button
+        @click="sendMessage"
+        :disabled="isTyping || !userInput.trim() || isListening"
+        title="发送消息 (Enter)"
+        class="send-button-new bottom-btn"
+      >
+        <i class="fas fa-paper-plane"></i>
+        <span>发送</span>
+      </button>
+    </div>
+  </div>
+</template>
+
+<script>
 import axios from 'axios';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 export default {
-  name 'AIAssistant',
-  
+  name: 'AIAssistantWithTTS',
   data() {
     return {
-      apiBaseUrl 'httplocalhost3000apidata',
-      aiApiUrl 'http210.27.197.2711434apichat',
-      chatMessages [],
-      userInput '',
-      isTyping false,
-      debug false,
-      isConnected true,
-      currentAnalysis null,
-      currentQuery null,
-      cache new Map(),
-      typingSpeed 50,
+      // --- API 配置 ---
+      apiBaseUrl: 'http://localhost:3000/api/data',
+      aiApiUrl: 'http://210.27.197.62:11434/api/chat',
+      llmModel: 'deepseek-r1:32b',
+
+      // --- 状态管理 ---
+      chatMessages: [],
+      userInput: '',
+      isTyping: false, // AI正在生成回复 (或正在处理中，包括思考和等待API响应)
+      debug: false,
+      isConnected: false,
+
+      // --- 旧调试信息 ---
+      currentAnalysis: null,
+      currentQuery: null,
+
+      // --- 其他配置 ---
+      typingSpeed: 0, // 设为0，因为语音交互时打字效果可能干扰
+      cache: new Map(),
+
+      // --- TTS (Text-to-Speech) 相关状态 ---
+      isTTSEnabled: true,
+      speechSynthesis: null,
+      currentUtterance: null,
+      voices: [],
+      selectedVoiceURI: null,
+      isSpeakingOnlyTTS: false, // 新增：AI是否正在播报，用于区分LLM生成过程中的isTyping
+
+      // --- STT (Speech-to-Text) 相关状态 ---
+      isListening: false, // 用户是否正在录音
+      speechRecognition: null,
+      speechRecognitionSupported: true, // 标记浏览器是否支持STT
+      interimTranscript: '', // 临时识别结果，用于界面显示
+      autoSendOnSpeechEnd: true, // 语音识别结束后是否自动发送
     };
   },
 
+  computed: {
+      getVoiceOverlayIcon() {
+          if (this.isListening) {
+              return 'fas fa-stop'; // 正在听取时显示停止图标
+          } else if (this.isTyping && !this.isSpeakingOnlyTTS) {
+              return 'fas fa-spinner fa-spin'; // AI思考或生成中
+          } else if (this.isSpeakingOnlyTTS) {
+              return 'fas fa-volume-up'; // AI正在播报
+          }
+          return 'fas fa-microphone'; // 默认麦克风图标
+      }
+  },
+
   created() {
-     测试数据库连接和基本查询
     this.testDatabaseConnection();
   },
 
-  methods {
-     增强意图分析方法
-    async analyzeIntent(userMessage) {
-      console.log(开始分析查询意图, userMessage);
-      
-      try {
-         使用本地大模型进行更深入的意图分析
-        const intentResponse = await axios.post(this.aiApiUrl, {
-          model 'deepseek-r132b',
-          messages [{
-            role 'user',
-            content `你现在是一个知识图谱查询意图分析器。请分析以下用户问题，判断用户想要查询的实体和查询类型。
-
-问题 ${userMessage}
-
-请以JSON格式返回分析结果，包含以下字段：
-{
-  intent entity_info,  可能的值 entity_info, relationship_info, attribute_info, general_question
-  entities [实体名称],  数组，可能包含多个实体
-  requiresKnowledgeGraph true,  布尔值，表示是否需要查询知识图谱
-  confidence 0.9  0-1之间的数字，表示分析的置信度
-}
-
-其中：
-- entity_info 用户询问某个实体的基本信息，例如张三是谁、王海洋的信息、介绍一下李四、你知道王海洋吗
-- relationship_info 用户询问实体间的关系，例如张三和李四是什么关系
-- attribute_info 用户询问实体的某个具体属性，例如张三的年龄、王海洋的学校
-- general_question 一般性问题，不需要查询知识图谱
-
-重要提示：即使问题表述方式不同，只要是询问实体的信息，都应判断为entity_info。例如王海洋是谁、王海洋的信息、介绍王海洋、你知道王海洋吗等都应判断为entity_info，并将王海洋提取为实体。`
-          }]
-        }, {
-          responseType 'text'
-        });
-        
-         解析结果
-        const analysis = this.extractJSONFromResponse(intentResponse.data);
-        
-        if (analysis) {
-          console.log(大模型意图分析结果, analysis);
-          return analysis;
-        }
-        
-         如果大模型分析失败，回退到规则匹配
-        return this.fallbackIntentAnalysis(userMessage);
-      } catch (error) {
-        console.error(意图分析失败, error);
-        return this.fallbackIntentAnalysis(userMessage);
+  mounted() {
+    // --- TTS 初始化 ---
+    if ('speechSynthesis' in window) {
+      this.speechSynthesis = window.speechSynthesis;
+      this.loadVoices();
+      if (this.speechSynthesis.onvoiceschanged !== undefined) {
+        this.speechSynthesis.onvoiceschanged = this.loadVoices;
       }
-    },
+    } else {
+      console.warn('浏览器不支持 SpeechSynthesis API。TTS 功能将不可用。');
+      this.isTTSEnabled = false; // 如果不支持，则禁用TTS按钮可能更好
+    }
 
-     从LLM回复中提取JSON
-    extractJSONFromResponse(response) {
-      try {
-         使用正则表达式查找JSON部分
-        const jsonMatch = response.match({[sS]});
-        if (jsonMatch) {
-          return JSON.parse(jsonMatch[0]);
-        }
-        
-         如果找不到完整JSON，尝试从分块响应中解析
-        const lines = response.split('n');
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line);
-            if (data.message.content) {
-              const contentJsonMatch = data.message.content.match({[sS]});
-              if (contentJsonMatch) {
-                return JSON.parse(contentJsonMatch[0]);
-              }
-            }
-          } catch (e) {
-             忽略解析错误，继续检查下一行
-          }
-        }
-        
-        return null;
-      } catch (error) {
-        console.error(JSON提取失败, error);
-        return null;
-      }
-    },
+    // --- STT 初始化 ---
+    if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+      const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+      this.speechRecognition = new SpeechRecognitionAPI();
+      this.speechRecognition.continuous = false; // 说完一句就结束
+      this.speechRecognition.interimResults = true; // 获取中间结果
+      this.speechRecognition.lang = 'zh-CN';    // 设置识别语言
 
-     回退到规则匹配
-    fallbackIntentAnalysis(userMessage) {
-      console.log(使用规则匹配分析意图);
-      const analysis = {
-        intent general_question,
-        entities [],
-        requiresKnowledgeGraph false,
-        confidence 0.5
+      this.speechRecognition.onstart = () => {
+        console.log('语音识别服务已启动');
+        this.isListening = true;
+        this.interimTranscript = ''; // 清空上一次的临时结果
+        // 用户开始录音，立即取消任何正在进行的TTS播报
+        if (this.speechSynthesis && this.speechSynthesis.speaking) {
+          this.speechSynthesis.cancel();
+          this.isSpeakingOnlyTTS = false;
+        }
       };
-      
-       扩展实体提取规则集
-      const entityPatterns = [
-        { pattern (.)(是谁是什么), intent entity_info },
-        { pattern (.)(的信息的资料的详情的介绍), intent entity_info },
-        { pattern (介绍认识了解知道)(.)(吗), intent entity_info },
-        { pattern (谁是什么是)(.), intent entity_info },
-        { pattern (.)(和与)(.)(的)(关系关联), intent relationship_info },
-        { pattern (.)(的)(属性特征特点数据), intent attribute_info },
-        { pattern (关于查询查找)(.)(的)(信息资料数据), intent entity_info }
-      ];
-      
-       关键词列表 - 用于判断是否可能需要知识图谱
-      const kgKeywords = [
-        '是谁', '是什么', '信息', '资料', '详情', '介绍', 
-        '认识', '了解', '知道', '谁是', '什么是',
-        '关系', '关联', '属性', '特征', '特点', '数据'
-      ];
-      
-       检查每个模式
-      for (const {pattern, intent} of entityPatterns) {
-        const match = userMessage.match(pattern);
-        if (match) {
-           找到匹配的模式
-          analysis.intent = intent;
-          analysis.requiresKnowledgeGraph = true;
-          analysis.confidence = 0.7;  规则匹配给一个中等置信度
-          
-           提取匹配到的实体，并去除可能的标点符号
-          if (match[1]) {
-            const entity = match[1].trim().replace([？.,，。!！]g, '');
-            if (entity && entity.length = 2) {
-              analysis.entities.push(entity);
-            }
-          }
-          if (match[2]) {
-            const entity = match[2].trim().replace([？.,，。!！]g, '');
-            if (entity && entity.length = 2) {
-              analysis.entities.push(entity);
-            }
-          }
-          
-          break;
-        }
-      }
-      
-       如果没有匹配模式但包含关键词，可能仍然需要知识图谱
-      if (analysis.intent === general_question) {
-         检查是否包含知识图谱相关关键词
-        const hasKgKeyword = kgKeywords.some(keyword = userMessage.includes(keyword));
-        
-        if (hasKgKeyword) {
-           尝试提取可能的实体名称（中文或英文短语）
-          const entityMatches = userMessage.match([u4e00-u9fa5a-zA-Z]{2,}g)  [];
-          const possibleEntities = entityMatches
-            .filter(e = !kgKeywords.includes(e) && e.length = 2)
-            .slice(0, 2);  最多取前两个
-          
-          if (possibleEntities.length  0) {
-            analysis.entities = possibleEntities;
-            analysis.intent = entity_info;  默认为实体查询
-            analysis.requiresKnowledgeGraph = true;
-            analysis.confidence = 0.6;  不太确定的匹配
-          }
-        }
-      }
-      
-      console.log(规则匹配分析结果, analysis);
-      return analysis;
-    },
 
-     根据意图生成Neo4j查询
-    generateKGQuery(intentAnalysis) {
-      if (!intentAnalysis  !intentAnalysis.requiresKnowledgeGraph  
-          intentAnalysis.entities.length === 0) {
-        return null;
-      }
-      
-      const entity = intentAnalysis.entities[0];
-      const secondEntity = intentAnalysis.entities[1];
-      let query = '';
-      
-       适配新的意图类型
-      switch (intentAnalysis.intent) {
-        case entity_info  通用实体信息查询
-          query = `
-            MATCH (n {name $entityName})
-            OPTIONAL MATCH (n)-[r]-(m)
-            RETURN n, r, m
-          `;
-          break;
-          
-        case relationship_info  关系查询
-          if (secondEntity) {
-            query = `
-              MATCH (n {name $entityName})-[r]-(m {name $secondEntity})
-              RETURN n, r, m
-            `;
+      this.speechRecognition.onresult = (event) => {
+        let finalTranscript = '';
+        this.interimTranscript = ''; // 重置，然后用最新的填充
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
           } else {
-            query = `
-              MATCH (n {name $entityName})-[r]-(m)
-              RETURN n, r, m
-            `;
+            this.interimTranscript += transcript;
           }
-          break;
-          
-        case attribute_info  属性查询
-          query = `
-            MATCH (n {name $entityName})
-            RETURN n
-          `;
-          break;
-          
-        default  默认的模糊查询
-          query = `
-            MATCH (n)
-            WHERE n.name CONTAINS $entityName OR toLower(n.name) CONTAINS toLower($entityName)
-            OPTIONAL MATCH (n)-[r]-(m)
-            RETURN n, r, m
-            LIMIT 10
-          `;
-      }
-      
-      console.log(`生成查询 ${query} [实体 ${entity}]`);
-      return { query, parameters { entityName entity, secondEntity } };
+        }
+
+        if (finalTranscript.trim() && this.isListening) {
+            this.userInput = finalTranscript.trim(); // 填充到输入框
+        }
+      };
+
+      this.speechRecognition.onerror = (event) => {
+        console.error('语音识别错误:', event.error);
+        let errorMsg = `语音识别遇到问题: ${event.error}`;
+        if (event.error === 'no-speech') {
+          errorMsg = '未检测到语音，请重试。';
+        } else if (event.error === 'audio-capture') {
+          errorMsg = '无法访问麦克风，请检查硬件或驱动。';
+        } else if (event.error === 'not-allowed') {
+          errorMsg = '麦克风权限被拒绝。请在浏览器设置中允许访问麦克风。';
+        }
+        this.addSystemMessage(errorMsg);
+        this.isListening = false;
+        this.interimTranscript = '';
+        this.isTyping = false; // 确保错误时也停止显示思考动画
+        this.isSpeakingOnlyTTS = false; // 确保错误时停止TTS播报状态
+      };
+
+      this.speechRecognition.onend = () => {
+        console.log('语音识别服务已断开');
+        this.isListening = false;
+        this.$nextTick(() => { // 确保interimTranscript更新到DOM后再清空
+            this.interimTranscript = '';
+        });
+        if (this.userInput.trim() && this.autoSendOnSpeechEnd) {
+          this.sendMessage();
+        } else if (this.userInput.trim()) {
+          this.$refs.userInputArea.focus(); // 让用户可以编辑或手动发送
+        }
+      };
+    } else {
+      console.warn('浏览器不支持 SpeechRecognition API。语音输入功能将不可用。');
+      this.speechRecognitionSupported = false;
+      this.addSystemMessage('抱歉，您的浏览器不支持语音输入功能。');
+    }
+
+    const welcomeMessage = '您好！我是文物领域智能语音助手，请问有什么可以帮您的？点击麦克风图标可以开始语音输入。';
+    this.addSystemMessage(welcomeMessage);
+    this.autoGrowTextarea(); // 初始化文本框高度
+    this.initBackgroundAnimation(); // 初始化背景动画
+  },
+
+  beforeUnmount() {
+    // 组件卸载前取消任何正在进行的TTS和STT
+    if (this.speechSynthesis && this.speechSynthesis.speaking) {
+      this.speechSynthesis.cancel();
+    }
+    if (this.speechRecognition && this.isListening) {
+      this.speechRecognition.stop();
+    }
+    // 清理背景动画的计时器
+    if (this._animationInterval) {
+      clearInterval(this._animationInterval);
+    }
+  },
+
+  methods: {
+    initBackgroundAnimation() {
+        const container = this.$refs.backgroundAnimation;
+        if (!container) return;
+
+        this._animationInterval = setInterval(() => {
+            const wave = document.createElement('div');
+            wave.className = 'wave';
+
+            const size = Math.random() * 100 + 50; // 50 to 150px
+            wave.style.width = size + 'px';
+            wave.style.height = size + 'px';
+            wave.style.left = Math.random() * 100 + '%';
+            wave.style.top = Math.random() * 100 + '%';
+            wave.style.animationDuration = `${Math.random() * 3 + 3}s`; // 3s to 6s
+
+            container.appendChild(wave);
+
+            // Clean up old waves after their animation duration
+            setTimeout(() => {
+                wave.remove();
+            }, parseFloat(wave.style.animationDuration) * 1000);
+        }, 1500); // Create a new wave every 1.5 seconds
     },
 
-     执行知识图谱查询
-    async executeKGQuery(queryInfo) {
-      if (!queryInfo) return null;
-      
+    autoGrowTextarea() {
+      const textarea = this.$refs.userInputArea;
+      if (textarea) {
+        textarea.style.height = 'auto'; // 重置高度以便正确计算 scrollHeight
+        textarea.style.height = textarea.scrollHeight + 'px';
+      }
+    },
+    handleKeydown(event) {
+      if (this.isListening) {
+         this.speechRecognition.stop(); // 如果用户在录音时打字，停止录音
+      }
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        this.sendMessage();
+      }
+       this.$nextTick(this.autoGrowTextarea); // Shift+Enter换行时也调整高度
+    },
+
+    async sendMessage() {
+      if (this.isListening) {
+         this.speechRecognition.stop(); // 如果因某种原因仍在监听，则停止
+      }
+      const userMessage = this.userInput.trim();
+      if (!userMessage || this.isTyping) return;
+
+      // 发送消息前取消任何正在进行的TTS播报
+      if (this.speechSynthesis && this.speechSynthesis.speaking) {
+        this.speechSynthesis.cancel();
+        this.isSpeakingOnlyTTS = false;
+      }
+
+      this.chatMessages.push({ role: 'user', content: userMessage, mainContent: userMessage });
+      this.userInput = ''; // 清空输入框
+      this.$nextTick(this.autoGrowTextarea); // 重置文本框高度
+      this.isTyping = true; // AI正在处理（包括思考和等待API响应）
+      this.scrollToBottom();
+
+      const thinkingSteps = this.initializeThinkingSteps(userMessage);
+
       try {
-        console.log(执行知识图谱查询, queryInfo);
-        
-         直接查询 API
-        const response = await axios.post(`${this.apiBaseUrl}query`, {
-          query queryInfo.query,
-          parameters queryInfo.parameters
-        });
-        
-        console.log(查询结果, response.data);
-        
-         添加来源标记
-        if (response.data) {
-          response.data._source = 'neo4j_query';
-        }
-        
-        return response.data;
-      } catch (error) {
-        console.error(知识图谱查询失败, error);
-        
-         尝试直接通过节点名查询 API
-        const entityName = queryInfo.parameters.entityName;
-        try {
-          console.log(`尝试直接查询节点 ${entityName}`);
-          const directResponse = await axios.get(`${this.apiBaseUrl}${entityName}`);
-          console.log(直接查询结果, directResponse.data);
-          const formattedResult = this.formatDirectQueryResult(directResponse.data);
-          
-           添加来源标记
-          if (formattedResult) {
-            formattedResult._source = 'direct';
+        thinkingSteps.entityExtraction.attempted = true;
+        const extractedEntities = await this.extractEntitiesWithLLM(userMessage, thinkingSteps);
+        thinkingSteps.entityExtraction.results = extractedEntities;
+
+        let knowledgeContext = '';
+        let kgResult = null;
+        let kgSource = 'none';
+
+        if (extractedEntities.length > 0 && this.isConnected) {
+          thinkingSteps.knowledgeGraphLookup.attempted = true;
+          const entityToSearch = extractedEntities[0].name;
+          thinkingSteps.knowledgeGraphLookup.entityUsed = entityToSearch;
+          kgResult = await this.queryKnowledgeGraphDirectly(entityToSearch, thinkingSteps);
+          if (!kgResult) {
+            kgResult = await this.queryKnowledgeGraphSemantically(userMessage, thinkingSteps);
           }
-          
+          if (kgResult) {
+            kgSource = thinkingSteps.knowledgeGraphLookup.queryType;
+            thinkingSteps.knowledgeGraphLookup.success = true;
+          }
+        } else if (!this.isConnected) {
+             thinkingSteps.knowledgeGraphLookup.resultSummary = '知识库未连接，跳过查询。';
+        } else {
+          thinkingSteps.knowledgeGraphLookup.resultSummary = '未提取到有效实体，跳过知识图谱查询。';
+        }
+
+        if (kgResult) {
+          knowledgeContext = this.formatKnowledgeGraphResults(kgResult);
+          thinkingSteps.knowledgeGraphLookup.resultSummary = `通过 ${kgSource} 方式查询 "${thinkingSteps.knowledgeGraphLookup.entityUsed}" 找到 ${kgResult.nodes?.length || 0} 个节点, ${kgResult.relationships?.length || 0} 条关系。`;
+          thinkingSteps.finalOutcome.source = 'knowledge_graph';
+        } else {
+          thinkingSteps.finalOutcome.source = 'model';
+        }
+
+        const finalPrompt = this.buildFinalPrompt(userMessage, knowledgeContext, thinkingSteps);
+        thinkingSteps.answerGeneration.prompt = finalPrompt;
+
+        const assistantMessage = {
+          role: 'assistant',
+          content: '', mainContent: '', thinkingContent: '', hasThinking: false,
+          source: thinkingSteps.finalOutcome.source,
+          thinkingSteps: thinkingSteps,
+          queryDetails: this.debug ? kgResult : null
+        };
+        this.chatMessages.push(assistantMessage);
+        this.scrollToBottom();
+
+        await this.streamLLMResponse(finalPrompt, assistantMessage);
+
+      } catch (error) {
+        console.error('[sendMessage] 处理消息时发生顶层错误:', error);
+        thinkingSteps.finalOutcome.source = 'error';
+        thinkingSteps.finalOutcome.errorMessage = error.message;
+        this.isTyping = false;
+        this.isSpeakingOnlyTTS = false;
+        this.showError(error, thinkingSteps);
+      } finally {
+        this.isTyping = false; // 最终结束思考动画
+        this.isSpeakingOnlyTTS = false; // 确保播报状态也重置
+        this.$nextTick(() => this.scrollToBottom());
+      }
+    },
+
+    initializeThinkingSteps(userInput) {
+        return {
+            userInput: userInput,
+            entityExtraction: { method: 'LLM (专用实体提取)', attempted: false, rawInput: userInput, prompt: null, rawResponse: null, results: [], error: null },
+            knowledgeGraphLookup: { attempted: false, entityUsed: null, queryType: 'none', queryDetails: null, success: false, rawResult: null, resultSummary: '未尝试知识图谱查询', error: null },
+            answerGeneration: { prompt: null, llmResponse: null, error: null },
+            finalOutcome: { source: 'model', errorMessage: null }
+        };
+    },
+    async extractEntitiesWithLLM(userMessage, thinkingSteps) {
+      const prompt = `
+任务：请从以下用户问题中，精准地提取出最核心的名词性实体（例如：人名、地名、组织名、物品名称、概念术语等）。
+用户问题：
+"${userMessage}"
+提取要求：
+1.  专注于识别问题指向的核心查询对象。
+2.  必须忽略所有非实体词语，例如：疑问词（"谁", "什么", "哪里"），动词（"介绍", "是", "查询"），代词（"你", "我", "它"），连词（"和", "与"），语气助词（"啊", "呢", "吗"），以及描述性或指示性短语（"给我介绍一下", "的信息", "有关于", "关于"）。
+3.  目标是提取出用户真正想查询的那个"东西"或"人"的名字。
+4.  示例：
+    - 输入："你给我介绍一下鎏金天王铜造像" -> 输出：["鎏金天王铜造像"]
+    - 输入："王海洋是谁？" -> 输出：["王海洋"]
+    - 输入："查询北京大学和清华大学的关系" -> 输出：["北京大学", "清华大学"]
+    - 输入："苹果公司的总部在哪里" -> 输出：["苹果公司"]
+    - 输入："什么是人工智能" -> 输出：["人工智能"]
+    - 输入："天安门广场" -> 输出：["天安门广场"]
+    - 输入："我想了解图计算技术" -> 输出：["图计算技术"]
+5.  以 JSON 格式返回结果，包含一个名为 "entities" 的数组，数组中的每个元素是提取到的实体字符串。
+6.  如果分析后认为问题中没有明确的核心实体可供提取（例如闲聊或非常模糊的问题 "你好啊"），则返回空的 "entities" 数组。
+7.  **！！！重要：绝对只输出 JSON 对象本身，前后不要包含任何解释性文字、说明、代码块标记（如 \`\`\`json ... \`\`\`）或其他任何非 JSON 内容。**
+JSON 输出格式示例（仅包含实体名称字符串数组）：
+{
+  "entities": ["实体1", "实体2"]
+}
+或 (如果找不到)：
+{
+  "entities": []
+}`;
+      thinkingSteps.entityExtraction.prompt = prompt;
+      try {
+        const response = await axios.post(this.aiApiUrl, {
+          model: this.llmModel,
+          messages: [{ role: 'user', content: prompt }],
+          stream: false, // 实体提取不需要流式响应
+          options: { response_format: { type: "json_object" } }
+        });
+        thinkingSteps.entityExtraction.rawResponse = JSON.stringify(response.data);
+        const extractedData = this.extractJSONFromLLMResponse(response.data);
+        if (extractedData && Array.isArray(extractedData.entities) && extractedData.entities.every(e => typeof e === 'string')) {
+          const validEntities = extractedData.entities
+            .map(name => name.trim())
+            .filter(name => name.length >= 2 && name.length < 50);
+          return validEntities.map(name => ({ name: name, confidence: null }));
+        } else {
+          thinkingSteps.entityExtraction.error = "LLM 返回格式不正确或未提取到实体";
+          return [];
+        }
+      } catch (error) {
+        thinkingSteps.entityExtraction.error = `LLM API 调用失败: ${error.message}`;
+        return [];
+      }
+    },
+    extractJSONFromLLMResponse(response) {
+      if (!response) return null;
+      let jsonString = '';
+      if (typeof response === 'object' && response.message?.content) {
+        jsonString = response.message.content;
+      } else if (typeof response === 'string') {
+        jsonString = response;
+      } else if (typeof response === 'object') {
+        try { JSON.parse(JSON.stringify(response)); return response; }
+        catch { jsonString = JSON.stringify(response); }
+      } else { return null; }
+      try { return JSON.parse(jsonString); } catch (e1) { /* ignore */ }
+      try { const m = jsonString.match(/```(?:json)?\s*([\s\S]*?)\s*```/); if(m && m[1]) return JSON.parse(m[1]); } catch (e2) { /* ignore */ }
+      try { const m = jsonString.match(/\{[\s\S]*\}/); if(m && m[0]) return JSON.parse(m[0]); } catch (e3) { /* ignore */ }
+      return null;
+    },
+    buildFinalPrompt(userMessage, knowledgeContext, thinkingSteps) {
+      const kgAttempted = thinkingSteps.knowledgeGraphLookup.attempted;
+      const kgSuccess = thinkingSteps.knowledgeGraphLookup.success;
+      const entityUsed = thinkingSteps.knowledgeGraphLookup.entityUsed || '用户询问的主题';
+      const baseInstructions = `
+【重要指令】:
+1.  **分离思考与回答**：将你所有的分析、推理、步骤拆解等内部思考过程，**完全**放入 <think>...</think> 标签内。
+2.  **最终答案**：在 <think> 标签之外，**只输出**直接面向用户的最终回答。这个回答必须简洁、流畅、完整且独立于思考过程。
+3.  **禁止在最终答案中包含思考痕迹**：最终答案中不应出现诸如"首先，我需要..."、"接下来，..." 、"因此，..."、"我的分析是..."等引导思考过程的词语。直接给出结论或信息。
+4.  **基于信息源**：如果提供了【知识图谱信息】，最终答案必须严格基于这些信息；如果没有，则基于你的通用知识。
+5.  **自然语言**：使用自然、专业的语言。
+6.  **Markdown格式**: 使用 Markdown 格式化回答（例如列表、加粗）。`;
+
+      if (knowledgeContext) {
+        return `你是一个严谨的知识问答助手。请严格根据下面提供的【知识图谱信息】来回答【用户问题】。
+【知识图谱信息】:
+\`\`\`
+${knowledgeContext}
+\`\`\`
+【用户问题】:
+"${userMessage}"
+${baseInstructions}
+【补充要求 - 基于知识图谱】:
+-   如果信息足够回答，请直接总结输出答案。
+-   如果信息不足以回答问题的某个方面，请在最终答案中明确说明（例如："关于 ${entityUsed} 的[某方面]，我目前没有详细信息。"）。
+-   **不要**在最终答案开头说"根据知识图谱..."，直接开始回答。`;
+      } else if (kgAttempted && !kgSuccess) {
+        return `你是一个智能助手。用户询问了关于 "${entityUsed}" 的问题，但在知识库中未能找到相关信息（原因：${thinkingSteps.knowledgeGraphLookup.error || '未找到匹配项'}）。
+【用户问题】:
+"${userMessage}"
+${baseInstructions}
+【补充要求 - 查询失败】:
+-   在最终答案中，首先告知用户在知识库中未找到关于 "${entityUsed}" 的具体信息。
+-   然后，尝试基于你的通用知识库，对用户的问题提供一个可能的、一般性的回答（如果可以）。
+-   如果通用知识也无法回答，请在最终答案中坦诚说明。`;
+      } else {
+        return `你是一个乐于助人的智能助手。请根据你的通用知识回答以下用户问题。
+【用户问题】:
+"${userMessage}"
+${baseInstructions}
+【补充要求 - 通用回答】:
+-   如果问题具体但你的知识库中没有信息，请在最终答案中坦诚告知。
+-   回答应清晰、简洁。`;
+      }
+    },
+    async streamLLMResponse(finalPrompt, assistantMessage) {
+        try {
+            // 使用 axios 的默认行为，它会等待所有数据接收完毕后将response.data作为完整的文本字符串返回
+            // 虽然设置了 stream: true，但 axios 在浏览器环境中处理该选项的方式可能与 Node.js 不同
+            // 对于 Ollama 这种逐行返回 JSON 的 API，axios 会将所有行累积到一个字符串中
+            const response = await axios.post(this.aiApiUrl, {
+                model: this.llmModel,
+                messages: [{ role: 'user', content: finalPrompt }],
+                stream: true, // 保持此设置，以匹配服务器的预期行为，但实际处理方式兼容axios在浏览器中的表现
+            }, { responseType: 'text' }); // 明确声明期望文本响应
+
+            let streamedContent = '';
+            let mainContentAccumulator = '';
+            let thinkingContentAccumulator = '';
+            let inThinkingBlock = false;
+
+            // 这里，response.data 已经是完整的字符串了，我们对其进行按行处理
+            const lines = response.data.split('\n');
+
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                try {
+                    // Ollama 的 stream 响应可能会在每行前加 'data: '
+                    const data = JSON.parse(line.replace('data: ', ''));
+                    let chunk = '';
+                    if (data.message?.content) chunk = data.message.content;
+                    else if (data.response) chunk = data.response; // 兼容其他LLM的响应格式
+
+                    if (chunk) {
+                        streamedContent += chunk;
+                        assistantMessage.content = streamedContent; // 完整的原始内容
+
+                        // 分离主内容和思考过程
+                        let currentChunkPos = 0;
+                        while (currentChunkPos < chunk.length) {
+                            if (inThinkingBlock) {
+                                const endTagIndex = chunk.indexOf('</think>', currentChunkPos);
+                                if (endTagIndex !== -1) {
+                                    thinkingContentAccumulator += chunk.substring(currentChunkPos, endTagIndex);
+                                    inThinkingBlock = false;
+                                    currentChunkPos = endTagIndex + '</think>'.length;
+                                } else {
+                                    thinkingContentAccumulator += chunk.substring(currentChunkPos);
+                                    currentChunkPos = chunk.length;
+                                }
+                            } else {
+                                const startTagIndex = chunk.indexOf('<think>', currentChunkPos);
+                                if (startTagIndex !== -1) {
+                                    mainContentAccumulator += chunk.substring(currentChunkPos, startTagIndex);
+                                    inThinkingBlock = true;
+                                    currentChunkPos = startTagIndex + '<think>'.length;
+                                } else {
+                                    mainContentAccumulator += chunk.substring(currentChunkPos);
+                                    currentChunkPos = chunk.length;
+                                }
+                            }
+                        }
+                        assistantMessage.mainContent = mainContentAccumulator;
+                        assistantMessage.thinkingContent = thinkingContentAccumulator;
+                        assistantMessage.hasThinking = thinkingContentAccumulator.trim().length > 0;
+
+                        this.$forceUpdate(); // 强制Vue更新DOM
+                        this.scrollToBottom();
+                    }
+                    if (data.done) break; // 结束标志
+                } catch (e) {
+                     // 如果某一行不是有效的JSON，作为普通文本追加
+                     console.warn("非JSON行或解析错误:", line, e);
+                     if (!inThinkingBlock) mainContentAccumulator += line + '\n'; else thinkingContentAccumulator += line + '\n';
+                     assistantMessage.mainContent = mainContentAccumulator;
+                     assistantMessage.thinkingContent = thinkingContentAccumulator;
+                     this.$forceUpdate(); this.scrollToBottom();
+                }
+            }
+
+            // 流式响应结束后，再次进行最终解析，以确保内容完整和正确分离
+            const finalParsed = this.parseThinkTags(streamedContent);
+            assistantMessage.content = streamedContent.trim();
+            assistantMessage.mainContent = finalParsed.mainContent;
+            assistantMessage.thinkingContent = finalParsed.thinkingContent;
+            assistantMessage.hasThinking = finalParsed.hasThinking;
+            if (assistantMessage.thinkingSteps) {
+                assistantMessage.thinkingSteps.answerGeneration.llmResponse = streamedContent.trim();
+                assistantMessage.thinkingSteps.finalOutcome.source = assistantMessage.source;
+            }
+
+            this.$forceUpdate();
+            this.scrollToBottom();
+
+            // 语音播报：只在内容完整后进行一次播报
+            if (this.isTTSEnabled && assistantMessage.mainContent && assistantMessage.role === 'assistant') {
+                const textToSpeak = this.cleanTextForSpeech(assistantMessage.mainContent);
+                this.startSpeaking(textToSpeak); // 使用统一的播报方法
+            }
+
+        } catch (error) {
+            const finalErrorMessage = `抱歉，我在尝试回答时遇到了一个内部错误。(${error.message})`;
+            if (assistantMessage) {
+                assistantMessage.content = finalErrorMessage;
+                assistantMessage.mainContent = `抱歉，我在尝试回答时遇到了一个内部错误。`; // TTS播报部分更简洁
+                assistantMessage.source = 'error';
+                if (assistantMessage.thinkingSteps) {
+                    assistantMessage.thinkingSteps.answerGeneration.error = `LLM API 调用失败: ${error.message}`;
+                    assistantMessage.thinkingSteps.finalOutcome.source = 'error';
+                    assistantMessage.thinkingSteps.finalOutcome.errorMessage = error.message;
+                }
+            } else {
+                 this.chatMessages.push({ role: 'assistant', content: finalErrorMessage, mainContent: `抱歉，我在尝试回答时遇到了一个内部错误。`, source: 'error', hasThinking: false });
+            }
+            if (this.isTTSEnabled) {
+                this.startSpeaking(this.cleanTextForSpeech(finalErrorMessage)); // 使用统一的播报方法
+            }
+            this.$forceUpdate();
+            this.scrollToBottom();
+        } finally {
+             this.isTyping = false; // 确保在流式响应结束后停止思考动画
+        }
+    },
+    parseThinkTags(text) {
+      if (!text) return { mainContent: '', thinkingContent: '', hasThinking: false };
+      let mainContent = ''; let thinkingContent = ''; let lastIndex = 0;
+      const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
+      let match;
+      while ((match = thinkRegex.exec(text)) !== null) {
+        mainContent += text.substring(lastIndex, match.index);
+        thinkingContent += match[1].trim() + '\n\n';
+        lastIndex = thinkRegex.lastIndex;
+      }
+      mainContent += text.substring(lastIndex);
+      mainContent = mainContent.trim(); thinkingContent = thinkingContent.trim();
+      return { mainContent: mainContent, thinkingContent: thinkingContent, hasThinking: thinkingContent.length > 0 };
+    },
+    async queryKnowledgeGraphDirectly(entityName, thinkingSteps) {
+      const encodedEntity = encodeURIComponent(entityName);
+      const queryUrl = `${this.apiBaseUrl}/${encodedEntity}`;
+      thinkingSteps.knowledgeGraphLookup.queryType = 'direct_api';
+      thinkingSteps.knowledgeGraphLookup.queryDetails = `GET ${queryUrl}`;
+      try {
+        const response = await axios.get(queryUrl);
+        thinkingSteps.knowledgeGraphLookup.rawResult = response.data;
+        const isValidResponse = response.data && ((Array.isArray(response.data) && response.data.length > 0) || (typeof response.data === 'object' && Object.keys(response.data).length > 0 && !Array.isArray(response.data)));
+        if (isValidResponse) {
+          const formattedResult = this.formatDirectQueryResult(response.data, entityName);
+          formattedResult._source = 'direct_api';
           return formattedResult;
-        } catch (directError) {
-          console.error(直接查询也失败, directError);
+        } else {
+          thinkingSteps.knowledgeGraphLookup.resultSummary = `直接 API 查询 /${encodedEntity} 未返回有效数据。`;
           return null;
         }
-      }
-    },
-
-     格式化直接查询结果为统一格式
-    formatDirectQueryResult(data) {
-      if (!data  !Array.isArray(data)  data.length === 0) return null;
-      
-      const result = {
-        nodes [],
-        relationships [],
-        _source 'direct'  添加来源标记
-      };
-      
-       处理节点
-      const nodeMap = new Map();
-      
-      data.forEach(item = {
-         处理 node1
-        if (item.node1 && item.node1.name) {
-          const nodeId = `n1_${item.node1.name}`;
-          if (!nodeMap.has(nodeId)) {
-            nodeMap.set(nodeId, true);
-            result.nodes.push({
-              id nodeId,
-              name item.node1.name,
-              labels ['Entity'],  添加默认标签
-              properties item.node1
-            });
-          }
-        }
-        
-         处理 node2
-        if (item.node2 && item.node2.name) {
-          const nodeId = `n2_${item.node2.name}`;
-          if (!nodeMap.has(nodeId)) {
-            nodeMap.set(nodeId, true);
-            result.nodes.push({
-              id nodeId,
-              name item.node2.name,
-              labels ['Entity'],  添加默认标签
-              properties item.node2
-            });
-          }
-        }
-        
-         处理关系
-        if (item.relationship && item.node1 && item.node2) {
-          result.relationships.push({
-            id `r_${result.relationships.length}`,
-            type item.relationship,
-            startNode `n1_${item.node1.name}`,
-            endNode `n2_${item.node2.name}`,
-            properties {}
-          });
-        }
-      });
-      
-      return result;
-    },
-
-     发送消息
-    async sendMessage() {
-      const userMessage = this.userInput.trim();
-      if (!userMessage  this.isTyping) return;
-
-       添加用户消息
-      this.chatMessages.push({
-        role 'user',
-        content userMessage
-      });
-
-      this.userInput = '';
-      this.isTyping = true;
-
-      try {
-         1. 首先尝试从用户消息中提取所有可能的实体
-        const potentialEntities = await this.extractPotentialEntities(userMessage);
-        console.log(识别到的潜在实体, potentialEntities);
-        
-         变量用于跟踪是否找到了知识图谱信息
-        let knowledgeContext = '';
-        let entityUsed = '';
-        let kgResult = null;
-        
-         2. 如果找到了潜在实体，尝试查询每个实体
-        if (potentialEntities.length  0) {
-           按照置信度排序，先查询最可能的实体
-          for (const entity of potentialEntities) {
-            console.log(`尝试查询实体 ${entity.name} (置信度 ${entity.confidence})`);
-            
-             尝试直接查询实体
-            try {
-              const directResponse = await axios.get(`${this.apiBaseUrl}${entity.name}`);
-              if (directResponse.data && directResponse.data.length  0) {
-                console.log(`成功找到实体 ${entity.name}`);
-                kgResult = this.formatDirectQueryResult(directResponse.data);
-                entityUsed = entity.name;
-                break;  找到一个实体就停止查询
-              }
-            } catch (error) {
-              console.log(`实体 ${entity.name} 直接查询失败 ${error.message}`);
-            }
-            
-             如果直接查询失败，尝试模糊查询
-            if (!kgResult) {
-              try {
-                console.log(`尝试模糊查询实体 ${entity.name}`);
-                const semanticResponse = await axios.post(
-                  `${this.apiBaseUrl}semantic-search`,
-                  { question userMessage }
-                );
-                
-                if (semanticResponse.data && 
-                    semanticResponse.data.nodes && 
-                    semanticResponse.data.nodes.length  0) {
-                  console.log(`成功找到相关实体数据`);
-                  kgResult = semanticResponse.data;
-                  kgResult._source = 'semantic';
-                  entityUsed = entity.name;
-                  break;
-                }
-              } catch (error) {
-                console.log(`实体 ${entity.name} 模糊查询失败 ${error.message}`);
-              }
-            }
-          }
-        }
-        
-         3. 如果找到了知识图谱数据，生成上下文
-        if (kgResult && (kgResult.nodes.length  0  kgResult.relationships.length  0)) {
-          knowledgeContext = this.formatKnowledgeGraphResults(kgResult);
-          console.log(知识图谱上下文, knowledgeContext);
-        }
-        
-         4. 构建提示词
-        let prompt;
-        if (knowledgeContext) {
-          prompt = `你是一个知识图谱增强的智能助手。请基于以下知识图谱信息回答用户问题。
-          
-知识图谱信息
-${knowledgeContext}
-
-用户问题 ${userMessage}
-
-注意
-1. 你的回答必须基于知识图谱中提供的信息
-2. 不要添加知识图谱中没有的信息
-3. 以自然流畅的方式回答，不要直接列出知识图谱的原始数据
-4. 如果知识图谱中的信息不足以回答问题，请说明`;
+      } catch (error) {
+        if (error.response && error.response.status === 404) {
+            thinkingSteps.knowledgeGraphLookup.resultSummary = `直接 API 查询 /${encodedEntity} 未找到实体 (404)。`;
         } else {
-           如果没有找到知识图谱数据，告知用户
-          prompt = `抱歉，我在知识图谱中没有找到与您问题相关的信息。您可以尝试换个方式提问，或者告诉我您具体想了解什么？`;
+            thinkingSteps.knowledgeGraphLookup.error = `直接 API 查询失败: ${error.message}`;
+            thinkingSteps.knowledgeGraphLookup.resultSummary = `直接 API 查询 /${encodedEntity} 失败。`;
         }
-        
-         5. 调用大模型生成回答
-        const response = await axios.post(this.aiApiUrl, {
-          model 'deepseek-r132b',
-          messages [{
-            role 'user',
-            content prompt
-          }]
-        }, {
-          responseType 'text'
-        });
-        
-         6. 处理响应
-        const lines = response.data.split('n');
-        let fullMessage = '';
-        
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          
-          try {
-            const data = JSON.parse(line);
-            if (data.message.content) {
-              fullMessage += data.message.content;
-            }
-          } catch (e) {
-             忽略解析错误
-          }
-        }
-        
-         7. 添加AI回复
-        await this.typeMessage(fullMessage, {
-          source knowledgeContext  'knowledge_graph'  'model',
-          queryDetails this.debug  {
-            userMessage,
-            entitiesExtracted potentialEntities.map(e = e.name),
-            entityUsed,
-            kgResult kgResult  {
-              source kgResult._source  'unknown',
-              nodeCount kgResult.nodes.length  0,
-              relationshipCount kgResult.relationships.length  0
-            }  null,
-            knowledgeContext knowledgeContext  'present'  'none',
-            promptLength prompt.length
-          }  null
-        });
-        
-      } catch (error) {
-        console.error('处理消息时出错', error);
-        this.showError(error);
-      } finally {
-        this.isTyping = false;
+        return null;
       }
     },
-
-     添加新的方法：从用户消息中提取所有可能的实体
-    async extractPotentialEntities(message) {
-      const entities = [];
-      
-       方法1 通过大模型提取实体
+    async queryKnowledgeGraphSemantically(userMessage, thinkingSteps) {
+      const queryUrl = `${this.apiBaseUrl}/semantic-search`;
+      const requestBody = { question: userMessage };
+      thinkingSteps.knowledgeGraphLookup.queryType = 'semantic_api';
+      thinkingSteps.knowledgeGraphLookup.queryDetails = `POST ${queryUrl}\nBody: ${JSON.stringify(requestBody)}`;
       try {
-        const response = await axios.post(this.aiApiUrl, {
-          model 'deepseek-r132b',
-          messages [{
-            role 'user',
-            content `你是一个实体提取专家。请从以下文本中提取出所有可能的命名实体（人名、地名、组织名、专有名词等）：
-
-${message}
-
-请以JSON格式返回结果，格式为：
-{
-  entities [
-    {name 实体1, type 实体类型, confidence 0.9},
-    {name 实体2, type 实体类型, confidence 0.8},
-    ...
-  ]
-}
-
-其中confidence表示置信度，1表示非常确定，0表示完全不确定。
-重要提示：1. 提取尽可能多的实体；2. 只输出JSON，不要有其他内容`
-          }]
-        }, {
-          responseType 'text'
-        });
-        
-         提取JSON结果
-        const jsonData = this.extractJSONFromResponse(response.data);
-        if (jsonData && jsonData.entities && Array.isArray(jsonData.entities)) {
-          jsonData.entities.forEach(entity = {
-            if (entity.name && entity.name.length = 2) {
-              entities.push({
-                name entity.name,
-                type entity.type  'unknown',
-                confidence entity.confidence  0.5,
-                source 'llm'
-              });
-            }
-          });
+        const response = await axios.post(queryUrl, requestBody);
+        thinkingSteps.knowledgeGraphLookup.rawResult = response.data;
+        if (response.data && Array.isArray(response.data.nodes) && response.data.nodes.length > 0) {
+          response.data._source = 'semantic_api';
+          thinkingSteps.knowledgeGraphLookup.error = null;
+          return response.data;
+        } else {
+          if (!thinkingSteps.knowledgeGraphLookup.success) {
+              thinkingSteps.knowledgeGraphLookup.resultSummary = `语义搜索 API 未找到 "${userMessage}" 的相关数据。`;
+          }
+          return null;
         }
       } catch (error) {
-        console.error(大模型实体提取失败, error);
+         if (!thinkingSteps.knowledgeGraphLookup.success) {
+            thinkingSteps.knowledgeGraphLookup.error = `语义搜索 API 失败: ${error.message}`;
+            thinkingSteps.knowledgeGraphLookup.resultSummary = `语义搜索 API 调用失败。`;
+         }
+        return null;
       }
-      
-       方法2 通过规则提取中文名词短语
-      try {
-         中文名词短语通常为2-10个汉字
-        const chineseNamePattern = [u4e00-u9fa5]{2,10}g;
-        const chineseMatches = message.match(chineseNamePattern)  [];
-        
-         过滤掉常见的停用词和问候语
-        const stopWords = ['您好', '请问', '谢谢', '知道', '了解', '什么', '怎么', '为什么', '如何', '是谁'];
-        
-        chineseMatches
-          .filter(word = !stopWords.includes(word) && word.length = 2)
-          .forEach(word = {
-             检查是否已经通过大模型添加
-            if (!entities.some(e = e.name === word)) {
-              entities.push({
-                name word,
-                type 'unknown',
-                confidence 0.6,
-                source 'rule'
-              });
-            }
-          });
-      } catch (error) {
-        console.error(规则实体提取失败, error);
-      }
-      
-       方法3 添加完整的句子分析
-       有时整个句子可能是对某个实体的询问
-      const questionTypes = [
-        {pattern 有哪些, confidence 0.5},
-        {pattern 是什么, confidence 0.5},
-        {pattern 有什么, confidence 0.5}
-      ];
-      
-      for (const {pattern, confidence} of questionTypes) {
-        if (pattern.test(message)) {
-           将去除问题词后的内容也视为可能的实体
-          const potentialEntity = message.replace(pattern, '').trim()
-                               .replace([？.,，。!！]g, '');
-          
-          if (potentialEntity.length = 2 && !entities.some(e = e.name === potentialEntity)) {
-            entities.push({
-              name potentialEntity,
-              type 'composite',
-              confidence confidence,
-              source 'sentence'
+    },
+    formatDirectQueryResult(data, queriedEntityName) {
+        const result = { nodes: [], relationships: [], _source: 'direct_api' };
+        const nodeMap = new Map();
+        if (Array.isArray(data)) {
+            data.forEach((item, index) => {
+                if (item.node1 && item.node1.name) {
+                    const nodeId = `node1_${index}_${item.node1.name}`;
+                    if (!nodeMap.has(item.node1.name)) {
+                         nodeMap.set(item.node1.name, nodeId);
+                         result.nodes.push({ id: nodeId, name: item.node1.name, labels: item.node1.labels || ['Entity'], properties: item.node1 });
+                    }
+                }
+                if (item.node2 && item.node2.name) {
+                    const nodeId = `node2_${index}_${item.node2.name}`;
+                    if (!nodeMap.has(item.node2.name)) {
+                        nodeMap.set(item.node2.name, nodeId);
+                         result.nodes.push({ id: nodeId, name: item.node2.name, labels: item.node2.labels || ['Entity'], properties: item.node2 });
+                    }
+                }
+                if (item.relationship && item.node1?.name && item.node2?.name) {
+                    result.relationships.push({ id: `rel_${index}_${item.relationship}`, type: item.relationship, startNode: nodeMap.get(item.node1.name), endNode: nodeMap.get(item.node2.name), properties: item.relationshipProperties || {} });
+                }
             });
-          }
-        }
-      }
-      
-       按置信度排序
-      return entities.sort((a, b) = b.confidence - a.confidence);
+        } else if (typeof data === 'object' && data !== null && data.name) {
+             const nodeId = `node_${data.name}`;
+             if (!nodeMap.has(data.name)) {
+                 nodeMap.set(data.name, nodeId);
+                 result.nodes.push({ id: nodeId, name: data.name, labels: data.labels || ['Entity'], properties: data });
+             }
+        } else {
+              const nodeId = `node_${queriedEntityName}`;
+               if (!nodeMap.has(queriedEntityName)) {
+                 nodeMap.set(queriedEntityName, nodeId);
+                 result.nodes.push({ id: nodeId, name: queriedEntityName, labels: ['Unknown'], properties: typeof data === 'object' ? data : { value: data } });
+             }
+         }
+        return result;
     },
-
-     添加新的方法，专门用于格式化知识图谱结果
     formatKnowledgeGraphResults(data) {
-      let context = '';
-      
-       格式化节点信息
-      if (data.nodes && data.nodes.length  0) {
-        context += '实体信息n';
-        
-        data.nodes.forEach(node = {
-           添加节点名称和标签
-          context += `- ${node.name}`;
-          if (node.labels && node.labels.length  0) {
-            context += ` (${node.labels.join(', ')})`;
-          }
-          context += 'n';
-          
-           添加属性信息
-          Object.entries(node.properties).forEach(([key, value]) = {
-            if (key !== 'name') {  跳过名称属性，因为已经显示了
-              context += `  ${key} ${value}n`;
-            }
-          });
+      let context = ''; const nodesById = {};
+      if (data.nodes && data.nodes.length > 0) {
+        context += '【相关实体信息】:\n';
+        data.nodes.forEach(node => {
+          nodesById[node.id] = node;
+          context += `- 实体: ${node.name || node.id}`;
+          if (node.labels && node.labels.length > 0) context += ` (类型: ${node.labels.join(', ')})`;
+          const props = Object.entries(node.properties || {}).filter(([key]) => !['name','id','labels'].includes(key.toLowerCase()) && !key.toLowerCase().includes('embedding')).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('; ');
+          if (props) context += ` | 属性: ${props}\n`; else context += '\n';
         });
-      }
-      
-       格式化关系信息
-      if (data.relationships && data.relationships.length  0) {
-        context += 'n关系信息n';
-        
-        data.relationships.forEach(rel = {
-           找到关系的起始和终止节点
-          const startNode = data.nodes.find(n = n.id === rel.startNode);
-          const endNode = data.nodes.find(n = n.id === rel.endNode);
-          
-          if (startNode && endNode) {
-            context += `- ${startNode.name} → [${rel.type}] → ${endNode.name}n`;
-            
-             如果关系有属性，也添加进来
-            if (rel.properties && Object.keys(rel.properties).length  0) {
-              context += `  关系属性 `;
-              Object.entries(rel.properties).forEach(([key, value], index, arr) = {
-                context += `${key} ${value}${index  arr.length - 1  ', '  ''}`; 
-              });
-              context += 'n';
-            }
-          }
+      } else { context += '【未找到相关实体信息】\n'; return context.trim(); }
+      if (data.relationships && data.relationships.length > 0) {
+        context += '\n【相关关系信息】:\n';
+        data.relationships.forEach(rel => {
+          const startNode = nodesById[rel.startNode] || { name: `[节点ID:${rel.startNode}]` };
+          const endNode = nodesById[rel.endNode] || { name: `[节点ID:${rel.endNode}]` };
+          context += `- (${startNode.name}) -[${rel.type}]-> (${endNode.name})`;
+          const props = Object.entries(rel.properties || {}).filter(([key]) => !key.toLowerCase().includes('embedding')).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('; ');
+          if (props) context += ` | 关系属性: ${props}\n`; else context += '\n';
         });
-      }
-      
-      return context;
+      } else { context += '\n【未找到相关关系信息】'; }
+      return context.trim();
     },
-
-     打字机效果
-    async typeMessage(message, metadata = {}) {
-      const tempMessage = {
-        role 'assistant',
-        content '',
-        ...metadata
-      };
-      this.chatMessages.push(tempMessage);
-
-      for (let i = 0; i  message.length; i++) {
-        await new Promise(resolve = setTimeout(resolve, this.typingSpeed));
-        tempMessage.content += message[i];
-        this.$forceUpdate();
-        
-        this.$nextTick(() = {
-          const chatMessages = this.$refs.chatMessages;
-          if (chatMessages) {
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-          }
-        });
-      }
-    },
-
-     格式化消息
-    formatMessage(content) {
-      try {
-        return marked(content  '');
-      } catch (error) {
-        console.error('格式化消息时出错', error);
-        return content;
-      }
-    },
-
-     切换调试模式
-    toggleDebug() {
-      this.debug = !this.debug;
-    },
-
-     显示错误
-    showError(error) {
-      const errorMessage = error.response.data.message  error.message;
-      const errorDetails = this.debug  `nn调试信息：${JSON.stringify(error.response.data  error, null, 2)}`  '';
-      
-      this.typeMessage(`抱歉，处理您的请求时出现错误：${errorMessage}${errorDetails}`, {
-        source 'error'
-      });
-    },
-
     async testDatabaseConnection() {
       try {
-        console.log(测试Neo4j数据库连接...);
-        
-         先简单测试数据库连接
-        const testQuery = MATCH (n) RETURN n.name LIMIT 5;
-        const testResponse = await axios.post(
-          `${this.apiBaseUrl}query`, 
-          { query testQuery }
-        );
-        
-        console.log(数据库测试查询结果, testResponse.data);
-        
-        if (testResponse.data && 
-            testResponse.data.nodes && 
-            testResponse.data.nodes.length  0) {
-          
-          console.log(数据库连接正常，找到节点, 
-                     testResponse.data.nodes.map(n = n.name).join(', '));
-          
+        const response = await axios.get(this.apiBaseUrl, { timeout: 5000 });
+        if (response.status === 200) {
           this.isConnected = true;
-          
-           添加数据库连接成功消息
-          this.chatMessages.push({
-            role 'assistant',
-            content '✅ 已连接到知识图谱数据库，您可以询问关于知识图谱中实体的信息。',
-            source 'system'
-          });
-          
-           测试查找特定节点
-          const entityToTest = 王海洋;
-          console.log(`测试查询具体实体 ${entityToTest}`);
-          
-          const entityResponse = await axios.post(
-            `${this.apiBaseUrl}semantic-search`,
-            { question `${entityToTest}是谁` }
-          );
-          
-          console.log(`实体测试查询结果`, entityResponse.data);
-          
-          if (entityResponse.data && 
-              entityResponse.data.nodes && 
-              entityResponse.data.nodes.length  0) {
-            console.log(`成功找到实体 ${entityToTest}`);
-          } else {
-            console.warn(`未找到实体 ${entityToTest}`);
-          }
-          
-        } else {
-          console.warn(数据库连接正常，但未找到任何节点);
-          this.isConnected = true;
-        }
+          this.addSystemMessage('✅ 知识库连接成功！');
+        } else { throw new Error(`连接测试返回状态码: ${response.status}`); }
       } catch (error) {
-        console.error(数据库连接测试失败, error);
         this.isConnected = false;
-        
-         添加一条系统消息
-        this.chatMessages.push({
-          role 'assistant',
-          content '⚠️ 无法连接到知识图谱数据库，将使用纯大模型回答问题',
-          source 'system'
-        });
+        this.addSystemMessage('⚠️ 无法连接到知识库，部分功能可能受限。');
+      }
+    },
+    async showAllNodes() {
+        if (!this.isConnected) { this.addSystemMessage("知识库未连接，无法获取实体列表。"); return; }
+        this.isTyping = true; this.addSystemMessage("正在查询知识库中的所有实体...");
+        try {
+            const response = await axios.get(this.apiBaseUrl);
+            if (response.data && Array.isArray(response.data)) {
+                const nodes = new Set();
+                 response.data.forEach(item => {
+                    if (item.node1?.name) nodes.add(item.node1.name);
+                    if (item.node2?.name) nodes.add(item.node2.name);
+                    if(item.name) nodes.add(item.name);
+                 });
+                if (nodes.size > 0) {
+                    let message = `知识库中目前包含以下 ${nodes.size} 个实体:\n\n${Array.from(nodes).sort().map(name => `- ${name}`).join('\n')}`;
+                     this.addSystemMessage(message);
+                } else { this.addSystemMessage("知识库中暂无实体数据。"); }
+            } else { this.addSystemMessage("无法从后端获取有效的实体列表数据。"); }
+        } catch (error) { this.addSystemMessage(`获取节点列表时出错: ${error.response?.data?.message || error.message}`); }
+        finally { this.isTyping = false; this.scrollToBottom(); }
+    },
+    formatMessage(content) {
+      if (!content) return '';
+      try { return DOMPurify.sanitize(marked.parse(content)); }
+      catch (error) { return content; }
+    },
+    addSystemMessage(content) {
+      const message = {
+        role: 'system',
+        content: content, mainContent: content,
+        source: 'system', timestamp: new Date()
+      };
+      this.chatMessages.push(message);
+      this.$nextTick(() => this.scrollToBottom());
+      if (this.isTTSEnabled && this.speechSynthesis && content) {
+        const textToSpeak = this.cleanTextForSpeech(content);
+        this.startSpeaking(textToSpeak); // 使用统一的播报方法
+      }
+    },
+    showError(error, thinkingSteps) {
+      const errorMessage = error.response?.data?.error || error.response?.data?.message || error.message;
+      const errorDetails = this.debug ? `\n\n调试信息：${JSON.stringify(error.response?.data || error, null, 2)}` : '';
+      const fullUserMessage = `抱歉，处理您的请求时遇到了问题：${errorMessage}${errorDetails}`;
+
+      const errorMsgObject = {
+        role: 'assistant',
+        content: fullUserMessage, mainContent: `抱歉，处理您的请求时遇到了问题：${errorMessage}`, // TTS只播报核心错误
+        source: 'error', thinkingSteps: thinkingSteps
+      };
+      this.chatMessages.push(errorMsgObject);
+      this.$nextTick(() => this.scrollToBottom());
+      if (this.isTTSEnabled && this.speechSynthesis) {
+        const textToSpeak = this.cleanTextForSpeech(errorMsgObject.mainContent);
+        this.startSpeaking(textToSpeak); // 使用统一的播报方法
       }
     },
 
-    async showAllNodes() {
-      try {
-        this.isTyping = true;
-        const response = await axios.get(`${this.apiBaseUrl}`);
-        
-        if (response.data && response.data.length  0) {
-          let message = 知识图谱中的实体nn;
-          
-           收集所有唯一的节点
-          const nodes = new Set();
-          response.data.forEach(item = {
-            if (item.node1 && item.node1.name) nodes.add(item.node1.name);
-            if (item.node2 && item.node2.name) nodes.add(item.node2.name);
-          });
-          
-          Array.from(nodes).sort().forEach(name = {
-            message += `- ${name}n`;
-          });
-          
-          await this.typeMessage(message, { source 'system' });
-        } else {
-          await this.typeMessage(知识图谱中暂无实体数据。, { source 'system' });
-        }
-      } catch (error) {
-        console.error(获取所有节点失败, error);
-        await this.typeMessage(`获取节点列表失败 ${error.response.data.message  error.message}`, { source 'error' });
-      } finally {
-        this.isTyping = false;
+    // --- TTS Methods ---
+    loadVoices() {
+      if (!this.speechSynthesis) return;
+      this.voices = this.speechSynthesis.getVoices();
+      // 优先选择本地服务的中文语音
+      const chineseVoice = this.voices.find(voice => voice.lang.startsWith('zh-CN') && voice.localService);
+      if (chineseVoice) {
+        this.selectedVoiceURI = chineseVoice.voiceURI;
+      } else {
+         // 如果没有本地服务，选择任何可用的中文语音
+         const anyChineseVoice = this.voices.find(voice => voice.lang.startsWith('zh-CN'));
+         if(anyChineseVoice) this.selectedVoiceURI = anyChineseVoice.voiceURI;
       }
-    }
+    },
+    toggleTTS() {
+      this.isTTSEnabled = !this.isTTSEnabled;
+      // 如果关闭TTS，立即停止播报
+      if (!this.isTTSEnabled && this.speechSynthesis && this.speechSynthesis.speaking) {
+        this.speechSynthesis.cancel();
+        this.isSpeakingOnlyTTS = false;
+      }
+    },
+    // 统一的语音播报方法
+    startSpeaking(text) {
+      if (!this.isTTSEnabled || !this.speechSynthesis || !text || text.trim().length === 0) {
+        console.log("TTS skipped: disabled, no synthesis, or empty text.");
+        return;
+      }
+
+      // 立即取消任何正在进行的播报，防止重叠
+      if (this.speechSynthesis.speaking) {
+        this.speechSynthesis.cancel();
+        console.log("TTS cancelled previous speech.");
+      }
+
+      this.currentUtterance = new SpeechSynthesisUtterance(text);
+      if (this.selectedVoiceURI) {
+        const voice = this.voices.find(v => v.voiceURI === this.selectedVoiceURI);
+        if (voice) this.currentUtterance.voice = voice;
+      }
+      // 如果没有指定语音或指定语音不支持中文，强制设置为中文
+      if(!this.currentUtterance.voice || !this.currentUtterance.voice.lang.startsWith('zh')) {
+          this.currentUtterance.lang = 'zh-CN';
+      }
+
+      this.currentUtterance.onend = () => {
+        this.currentUtterance = null;
+        this.isSpeakingOnlyTTS = false; // 播报结束，重置状态
+        console.log('TTS finished speaking.');
+      };
+      this.currentUtterance.onerror = (event) => {
+        console.error('TTS Error:', event.error);
+        this.currentUtterance = null;
+        this.isSpeakingOnlyTTS = false; // 播报出错，重置状态
+      };
+
+      // 启动播报前设置状态
+      this.isSpeakingOnlyTTS = true;
+      console.log('TTS starting speech:', text);
+      this.speechSynthesis.speak(this.currentUtterance);
+    },
+    cleanTextForSpeech(markdownText) {
+      if (!markdownText) return '';
+      let text = markdownText;
+      // 移除代码块
+      text = text.replace(/```[\s\S]*?```/g, ' (代码部分) ');
+      // 移除行内代码
+      text = text.replace(/`([^`]+)`/g, '$1');
+      // 移除图片
+      text = text.replace(/!\[(.*?)\]\(.*?\)/g, '(图片: $1) ');
+      // 移除链接
+      text = text.replace(/\[(.*?)\]\(.*?\)/g, '$1');
+      // 移除Markdown标题
+      text = text.replace(/^#{1,6}\s+/gm, '');
+      // 移除加粗/斜体标记
+      text = text.replace(/(\*\*|__)(.*?)\1/g, '$2');
+      text = text.replace(/(\*|_)(.*?)\1/g, '$2');
+      // 移除水平线
+      text = text.replace(/^(-{3,}|\*{3,}|_{3,})$/gm, '');
+      // 移除列表标记
+      text = text.replace(/^\s*[*+-]\s+/gm, ' ');
+      text = text.replace(/^\s*\d+\.\s+/gm, ' ');
+      // 移除HTML标签
+      text = text.replace(/<\/?[^>]+(>|$)/g, "");
+      // 替换所有换行符和多余空格为单个空格
+      text = text.replace(/(\r\n|\n|\r)/gm, " ").replace(/\s+/g, ' ').trim();
+      return text;
+    },
+
+    // --- STT Methods ---
+    toggleListening() {
+      if (!this.speechRecognitionSupported || !this.speechRecognition) {
+        this.addSystemMessage(this.speechRecognitionSupported ? '语音识别未正确初始化。' : '抱歉，您的浏览器不支持语音输入。');
+        return;
+      }
+      if (this.isListening) {
+        this.speechRecognition.stop(); // 停止录音
+      } else {
+        this.userInput = ''; // 清空文本框以便接收新的语音输入
+        this.$nextTick(this.autoGrowTextarea);
+        try {
+          this.speechRecognition.start(); // 开始录音
+        } catch (e) {
+          console.error("无法启动语音识别: ", e);
+          this.addSystemMessage("无法启动语音识别，请检查麦克风权限或配置。");
+          this.isListening = false;
+        }
+      }
+    },
+
+    // --- UI Helper Methods ---
+    scrollToBottom() {
+      this.$nextTick(() => {
+        const container = this.$refs.chatMessages;
+        if (container) container.scrollTop = container.scrollHeight;
+      });
+    },
+    toggleDebug() { this.debug = !this.debug; },
+    getRoleIcon(role) {
+        switch (role) {
+            case 'assistant': return 'fas fa-robot';
+            case 'user': return 'fas fa-user';
+            case 'system': return 'fas fa-info-circle';
+            default: return 'fas fa-question-circle';
+        }
+    },
+    getRoleName(role) {
+        switch (role) {
+            case 'assistant': return 'AI 助手';
+            case 'user': return '您';
+            case 'system': return '系统消息';
+            default: return '未知';
+        }
+    },
+    getSourceIcon(source) {
+        switch (source) {
+            case 'knowledge_graph': return 'fas fa-database';
+            case 'model': return 'fas fa-brain';
+            case 'error': return 'fas fa-exclamation-triangle';
+            case 'system': return 'fas fa-info-circle';
+            default: return 'fas fa-question-circle';
+        }
+    },
+    getSourceName(source) {
+        switch (source) {
+            case 'knowledge_graph': return '基于知识图谱';
+            case 'model': return '基于通用模型';
+            case 'error': return '处理出错';
+            case 'system': return '系统';
+            default: return '未知来源';
+        }
+    },
   }
 };
-script
+</script>
 
-style scoped
-.ai-assistant-container {
-  display flex;
-  flex-direction column;
-  height 100vh;
-  background #f5f7fa;
+<style scoped>
+/* --- 全局样式和背景动画 --- */
+/* 注意：这里设置了body的背景，但Vue组件通常是挂载到body内的某个div。
+   为了实现全屏背景，请确保你的Vue应用根元素是全屏的，或者在index.html的body上设置这些样式。
+   在这里，我们直接应用到 .voice-chat-container
+*/
+.voice-chat-container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: rgba(255, 255, 255, 0.05); /* 半透明背景 */
+    backdrop-filter: blur(20px); /* 磨砂玻璃效果 */
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: white; /* 默认文本颜色 */
+    position: relative; /* 用于背景动画的定位 */
+    overflow: hidden; /* 隐藏超出容器的背景波浪 */
 }
 
-.chat-header {
-  padding 20px;
-  background white;
-  border-bottom 1px solid #eee;
-  display flex;
-  justify-content space-between;
-  align-items center;
+/* 背景动画 */
+.background-animation {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none; /* 确保不影响交互 */
+    overflow: hidden;
+    z-index: 0; /* 确保在最底层 */
 }
 
-.header-left {
-  display flex;
-  flex-direction column;
-  gap 4px;
+.wave {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.05);
+    animation: wave-animation 4s infinite;
 }
 
-.header-left h3 {
-  margin 0;
-  font-size 18px;
-  color #333;
+@keyframes wave-animation {
+    0% {
+        transform: scale(0);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(4);
+        opacity: 0;
+    }
 }
 
-.model-info {
-  font-size 12px;
-  color #666;
+/* --- 顶部状态栏 (原 chat-header) --- */
+.status-bar {
+    padding: 20px 30px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+    z-index: 2; /* 确保在内容之上 */
 }
 
-.status-indicator {
-  display flex;
-  align-items center;
-  gap 6px;
-  font-size 14px;
-  color #666;
+.status-left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
 }
 
-.status-indicator.active {
-  color #4caf50;
+.ai-avatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 20px;
+    animation: pulse 2s infinite;
+    flex-shrink: 0;
 }
 
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.ai-info h3 {
+    color: white;
+    font-size: 18px;
+    margin-bottom: 4px;
+}
+
+.ai-status {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #4ecdc4;
+    animation: blink 1.5s infinite;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.3; }
+}
+
+.status-right {
+    display: flex;
+    gap: 15px;
+}
+
+.control-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    flex-shrink: 0;
+}
+
+.control-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(1.1);
+}
+
+.control-btn.active {
+    background: rgba(76, 175, 80, 0.3); /* 更亮的绿色 */
+    border-color: #4caf50;
+}
+/* 特殊激活状态 */
+.tts-toggle.active {
+    background: rgba(76, 175, 80, 0.3); /* 绿色系 */
+    border-color: #4caf50;
+}
+.debug-toggle.active {
+    background: rgba(255, 77, 79, 0.3); /* 红色系 */
+    border-color: #ff4d4f;
+}
+.control-btn:disabled, .control-btn.not-supported {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+.control-btn:disabled:hover, .control-btn.not-supported:hover {
+    transform: none;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+
+/* --- 聊天消息区域 (原 chat-messages) --- */
 .chat-messages {
-  flex 1;
-  padding 20px;
-  overflow-y auto;
-  display flex;
-  flex-direction column;
-  gap 16px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 20px 30px;
+    overflow-y: auto;
+    position: relative; /* 确保滚动条在容器内部 */
+    z-index: 1; /* 确保在背景动画之上 */
 }
 
-.message {
-  max-width 85%;
-  margin-bottom 8px;
+.conversation-item {
+    margin-bottom: 15px;
+    padding: 15px 20px;
+    border-radius: 15px;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(5px);
+    color: white;
+    word-wrap: break-word;
+    max-width: 70%; /* 限制消息宽度 */
 }
 
-.message.user {
-  align-self flex-end;
+.conversation-item.user {
+    background: rgba(100, 149, 237, 0.2); /* 用户消息颜色 */
+    margin-left: auto; /* 右对齐 */
+    border-bottom-right-radius: 4px; /* 右下角圆角小一点 */
 }
 
-.message.assistant {
-  align-self flex-start;
+.conversation-item.assistant {
+    background: rgba(255, 107, 107, 0.2); /* AI消息颜色 */
+    margin-right: auto; /* 左对齐 */
+    border-bottom-left-radius: 4px; /* 左下角圆角小一点 */
 }
 
-.message-content {
-  padding 16px;
-  border-radius 12px;
-  background white;
-  box-shadow 0 2px 8px rgba(0, 0, 0, 0.05);
+.conversation-item.system {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.9em;
+    width: 100%;
+    max-width: 100%; /* 系统消息居中显示，宽度限制 */
+    text-align: center;
+    margin-left: auto;
+    margin-right: auto;
+    box-shadow: none;
+    padding: 10px 15px;
+    margin-bottom: 15px;
+    border-radius: 10px;
 }
 
-.message.user .message-content {
-  background #e3f2fd;
+.message-header-new {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.message-role-new {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+}
+.message-role-new i { font-size: 0.9rem; }
+
+.message-source-new {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    border-radius: 10px;
+    background-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.7);
+}
+.message-source-new i { font-size: 0.8em; }
+.message-source-new.source-knowledge_graph { background-color: rgba(76, 175, 80, 0.3); color: #a5d6a7; }
+.message-source-new.source-model { background-color: rgba(33, 150, 243, 0.3); color: #90caf9; }
+.message-source-new.source-error { background-color: rgba(244, 67, 54, 0.3); color: #ef9a9a; }
+
+.thinking-steps-new {
+    margin-top: 10px;
+    margin-bottom: 8px;
+    padding: 5px 0px;
+    background-color: transparent;
+    border: none;
+    border-top: 1px dashed rgba(255, 255, 255, 0.1);
+    border-radius: 0;
+    font-size: 0.8rem;
+}
+.thinking-steps-new summary {
+    cursor: pointer;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 0;
+    list-style: none;
+    transition: color 0.2s ease;
+}
+.thinking-steps-new summary::-webkit-details-marker { display: none; }
+.thinking-steps-new summary:hover { color: #81d4fa; }
+.thinking-steps-new summary i.fa-brain { margin-right: 5px; color: rgba(255, 255, 255, 0.5); }
+.thinking-steps-new summary:hover i.fa-brain { color: #81d4fa; }
+.thinking-steps-new .details-arrow { transition: transform 0.2s ease-in-out; font-size: 0.8em; margin-left: 5px; color: rgba(255, 255, 255, 0.4); }
+.thinking-steps-new[open] summary .details-arrow { transform: rotate(180deg); }
+
+.thinking-steps-content-new {
+    margin-top: 8px;
+    padding: 12px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+    font-size: 0.9em;
+    color: rgba(255, 255, 255, 0.8);
+    max-height: 400px;
+    overflow-y: auto;
 }
 
-.message-header {
-  display flex;
-  justify-content space-between;
-  align-items center;
-  margin-bottom 8px;
+.message-text-new {
+    font-size: 0.95rem;
+    color: white;
+}
+.message-text-new p { margin-bottom: 0.8em; }
+.message-text-new p:last-child { margin-bottom: 0; }
+.message-text-new ul, .message-text-new ol { padding-left: 20px; margin-bottom: 0.8em; }
+.message-text-new li { margin-bottom: 0.4em; }
+.message-text-new code {
+    background-color: rgba(0, 0, 0, 0.2);
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+    font-size: 0.9em;
+    color: #ffcc80; /* code color */
+}
+.message-text-new pre {
+    background-color: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 12px;
+    margin: 10px 0;
+    overflow-x: auto;
+    font-size: 0.9em;
+}
+.message-text-new pre code {
+    background-color: transparent;
+    padding: 0;
+    color: inherit;
+}
+.message-text-new blockquote {
+    border-left: 3px solid rgba(255, 255, 255, 0.4);
+    padding-left: 10px;
+    margin-left: 0;
+    color: rgba(255, 255, 255, 0.7);
+}
+.message-text-new a { color: #81d4fa; text-decoration: none; }
+.message-text-new a:hover { text-decoration: underline; }
+
+/* --- 语音可视化叠加层 --- */
+.voice-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7); /* 半透明背景 */
+    backdrop-filter: blur(15px); /* 模糊背景 */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100; /* 确保在最顶层 */
+    transition: opacity 0.3s ease;
 }
 
-.message-role {
-  display flex;
-  align-items center;
-  gap 8px;
-  font-size 14px;
-  color #666;
+.voice-overlay-fade-enter-active, .voice-overlay-fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+.voice-overlay-fade-enter, .voice-overlay-fade-leave-to {
+  opacity: 0;
 }
 
-.message-source {
-  display flex;
-  align-items center;
-  gap 4px;
-  font-size 12px;
-  color #1976d2;
-  background #e3f2fd;
-  padding 4px 8px;
-  border-radius 4px;
+
+.voice-visualizer {
+    width: 300px;
+    height: 300px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 40px;
+    position: relative;
+    border: 2px solid rgba(255, 255, 255, 0.1);
 }
 
-.query-details {
-  margin-top 12px;
-  padding 12px;
-  background #f8f9fa;
-  border-radius 6px;
-  font-size 12px;
+.voice-button {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+    border: none;
+    color: white;
+    font-size: 36px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
+.voice-button:hover {
+    transform: scale(1.1);
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.4);
+}
+
+.voice-button.listening {
+    animation: listening-pulse 1s infinite;
+}
+
+@keyframes listening-pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+
+.voice-button.speaking {
+    background: linear-gradient(45deg, #4ecdc4, #45b7d1);
+}
+.voice-button:disabled {
+    background: rgba(0,0,0,0.5);
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+.voice-button:disabled:hover {
+    transform: none;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.voice-waves {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.voice-waves.active {
+    opacity: 1;
+}
+
+.wave-bar {
+    width: 4px;
+    height: 20px;
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 2px;
+    animation: wave-bar 1s infinite;
+}
+
+.wave-bar:nth-child(2) { animation-delay: 0.1s; }
+.wave-bar:nth-child(3) { animation-delay: 0.2s; }
+.wave-bar:nth-child(4) { animation-delay: 0.3s; }
+.wave-bar:nth-child(5) { animation-delay: 0.4s; }
+
+@keyframes wave-bar {
+    0%, 100% { transform: scaleY(0.5); }
+    50% { transform: scaleY(1.5); }
+    100% { transform: scaleY(0.5); }
+}
+
+.status-text {
+    color: white;
+    font-size: 18px;
+    margin-bottom: 20px;
+    text-align: center;
+    min-height: 50px; /* 保持高度一致，防止内容闪烁 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.interim-text {
+    color: rgba(255, 255, 255, 0.7);
+    font-style: italic;
+    font-size: 16px;
+    min-height: 24px; /* 保持高度一致 */
+}
+
+/* 加载动画 */
+.loading-dots {
+    display: inline-flex;
+    gap: 4px;
+    margin-left: 10px; /* 与文字分隔 */
+}
+
+.loading-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor; /* 继承父元素的颜色 */
+    animation: loading-bounce 1.4s infinite;
+}
+
+.loading-dot:nth-child(1) { animation-delay: 0s; }
+.loading-dot:nth-child(2) { animation-delay: 0.2s; }
+.loading-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes loading-bounce {
+    0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+    40% { transform: scale(1.2); opacity: 1; }
+}
+
+/* --- 调试信息面板 (原 debug-panel) --- */
 .debug-panel {
-  padding 16px;
-  background #f8f9fa;
-  border-top 1px solid #eee;
-  font-size 12px;
-  max-height 200px;
-  overflow-y auto;
+    position: fixed; /* 固定定位 */
+    bottom: 20px;
+    right: 20px;
+    padding: 15px;
+    background: rgba(0, 0, 0, 0.6); /* 半透明背景 */
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    font-size: 0.8rem;
+    max-height: 300px;
+    overflow-y: auto;
+    color: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(10px);
+    z-index: 99; /* 在聊天内容之上，在语音叠加层之下 */
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
 }
-
-.debug-section {
-  margin-bottom 12px;
-}
-
 .debug-section h4 {
-  margin 0 0 8px 0;
-  font-size 14px;
-  color #666;
+    margin: 0 0 8px 0;
+    font-size: 0.9rem;
+    color: #ffcc80; /* 亮黄色 */
 }
-
 .debug-section pre {
-  margin 0;
-  padding 8px;
-  background white;
-  border-radius 4px;
-  white-space pre-wrap;
+    margin: 0;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: #a5d6a7; /* 绿色系文本 */
+}
+.query-details {
+    margin-top: 10px;
+    padding: 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px dashed rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+.query-details strong { color: #81d4fa; } /* 蓝色系 */
+.query-details pre { background-color: rgba(0, 0, 0, 0.3); padding: 5px; margin-top: 5px; }
+
+/* --- 底部控制区 (原 chat-input) --- */
+.bottom-controls {
+    padding: 20px 30px;
+    display: flex;
+    align-items: flex-end; /* 保持与输入框对齐 */
+    gap: 20px;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+    z-index: 2; /* 确保在内容之上 */
 }
 
-.chat-input {
-  padding 16px;
-  background white;
-  border-top 1px solid #eee;
+.bottom-btn {
+    padding: 12px 24px;
+    border-radius: 25px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0; /* 防止被压缩 */
 }
 
-.chat-input textarea {
-  width 100%;
-  padding 12px;
-  border 2px solid #e6e8eb;
-  border-radius 8px;
-  resize none;
-  height 80px;
-  font-family inherit;
-  margin-bottom 12px;
-  transition all 0.3s;
+.bottom-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+}
+.bottom-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+.bottom-btn:disabled:hover {
+    transform: none;
+    background: rgba(255, 255, 255, 0.05);
 }
 
-.chat-input textareafocus {
-  border-color #1976d2;
-  outline none;
-  box-shadow 0 0 0 3px rgba(25, 118, 210, 0.1);
+/* 小麦克风按钮 */
+.mic-button-small {
+    padding: 12px 24px; /* 保持与底部按钮一致的内边距 */
+    height: auto; /* 让高度根据内容自适应 */
+}
+.mic-button-small i { font-size: 1.1rem; }
+.mic-button-small.active {
+    background: rgba(255, 77, 79, 0.3);
+    border-color: #ff4d4f;
+}
+.mic-button-small.active:hover {
+    background: rgba(255, 77, 79, 0.4);
+    transform: translateY(-2px);
 }
 
-.chat-input button {
-  width 100%;
-  padding 12px;
-  border none;
-  border-radius 8px;
-  background #1976d2;
-  color white;
-  font-weight 500;
-  cursor pointer;
-  transition all 0.2s;
-  display flex;
-  align-items center;
-  justify-content center;
-  gap 8px;
+
+.bottom-controls textarea {
+    flex-grow: 1;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 15px; /* 更圆润的边角 */
+    padding: 10px 15px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    resize: none;
+    min-height: 50px; /* 确保初始高度 */
+    max-height: 120px; /* 限制最大高度 */
+    overflow-y: auto;
+    transition: border-color 0.3s, box-shadow 0.3s, background-color 0.3s;
+    font-family: inherit;
+    background: rgba(255, 255, 255, 0.1); /* 半透明背景 */
+    color: white; /* 文本颜色 */
+    outline: none; /* 移除默认焦点轮廓 */
+}
+.bottom-controls textarea::placeholder {
+    color: rgba(255, 255, 255, 0.7);
+}
+.bottom-controls textarea:focus {
+    border-color: rgba(129, 212, 250, 0.6); /* 蓝色高亮 */
+    box-shadow: 0 0 0 2px rgba(129, 212, 250, 0.2);
+    background: rgba(255, 255, 255, 0.15); /* 焦点时略微提亮 */
+}
+.bottom-controls textarea:disabled {
+    background-color: rgba(255, 255, 255, 0.05);
+    cursor: not-allowed;
+    opacity: 0.7;
 }
 
-.chat-input buttonhover {
-  background #1565c0;
+.send-button-new {
+    /* 继承 .bottom-btn 的大部分样式 */
+    background: linear-gradient(45deg, #667eea, #764ba2); /* 渐变背景 */
+    border: none; /* 移除边框 */
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+.send-button-new:hover {
+    background: linear-gradient(45deg, #5a6cd6, #6b3e94); /* 悬停时颜色变深 */
+}
+.send-button-new:disabled {
+    background: rgba(102, 126, 234, 0.5); /* 渐变色变浅 */
+    box-shadow: none;
+}
+.send-button-new i { font-size: 1.1rem; }
+
+
+/* --- 滚动条美化 --- */
+.chat-messages::-webkit-scrollbar,
+.thinking-steps-content-new::-webkit-scrollbar,
+.bottom-controls textarea::-webkit-scrollbar,
+.debug-panel::-webkit-scrollbar {
+    width: 8px;
+    height: 8px; /* For horizontal scrollbars if any */
 }
 
-.chat-input buttondisabled {
-  background #e0e0e0;
-  cursor not-allowed;
+.chat-messages::-webkit-scrollbar-track,
+.thinking-steps-content-new::-webkit-scrollbar-track,
+.bottom-controls textarea::-webkit-scrollbar-track,
+.debug-panel::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05); /* 半透明轨道 */
+    border-radius: 4px;
 }
 
-.typing-indicator {
-  display flex;
-  gap 4px;
-  padding 12px;
-  background white;
-  border-radius 12px;
-  box-shadow 0 2px 8px rgba(0, 0, 0, 0.05);
+.chat-messages::-webkit-scrollbar-thumb,
+.thinking-steps-content-new::-webkit-scrollbar-thumb,
+.bottom-controls textarea::-webkit-scrollbar-thumb,
+.debug-panel::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3); /* 半透明滑块 */
+    border-radius: 4px;
 }
 
-.typing-indicator span {
-  width 8px;
-  height 8px;
-  background #1976d2;
-  border-radius 50%;
-  animation bounce 1.4s infinite ease-in-out;
+.chat-messages::-webkit-scrollbar-thumb:hover,
+.thinking-steps-content-new::-webkit-scrollbar-thumb:hover,
+.bottom-controls textarea::-webkit-scrollbar-thumb:hover,
+.debug-panel::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5); /* 悬停时更不透明 */
 }
 
-.typing-indicator spannth-child(1) { animation-delay -0.32s; }
-.typing-indicator spannth-child(2) { animation-delay -0.16s; }
+/* --- 响应式设计 (从示例中复制) --- */
+@media (max-width: 768px) {
+    .voice-visualizer {
+        width: 250px;
+        height: 250px;
+    }
+    
+    .voice-button {
+        width: 100px;
+        height: 100px;
+        font-size: 30px;
+    }
+    
+    .status-bar, .bottom-controls {
+        padding: 15px 20px;
+    }
+    
+    .chat-messages {
+        padding: 20px;
+    }
 
-@keyframes bounce {
-  0%, 80%, 100% { transform scale(0); }
-  40% { transform scale(1); }
+    .bottom-controls {
+        flex-wrap: wrap; /* 小屏幕下换行 */
+        justify-content: center;
+        gap: 10px;
+    }
+    .bottom-controls textarea {
+        min-height: 40px; /* 适应小屏幕 */
+    }
+    .mic-button-small, .send-button-new {
+        padding: 10px 18px; /* 调整小按钮大小 */
+        height: 40px;
+    }
+    .send-button-new span, .mic-button-small span {
+        display: none; /* 小屏幕下隐藏文字，只留图标 */
+    }
+    .mic-button-small i, .send-button-new i {
+        margin: 0; /* 移除图标旁边的边距 */
+    }
+    .control-btn {
+        width: 36px;
+        height: 36px;
+    }
 }
-
-.message-content.system {
-  background #fff3cd;
-  border 1px solid #ffecb5;
-  color #856404;
-}
-
-.message-source.knowledge-graph {
-  color #28a745;
-  background #d4edda;
-}
-
-.message-source.model-only {
-  color #17a2b8;
-  background #d1ecf1;
-}
-
-.message-source.error {
-  color #dc3545;
-  background #f8d7da;
-}
-
-.action-button {
-  background transparent;
-  border 1px solid #ddd;
-  border-radius 4px;
-  color #666;
-  cursor pointer;
-  display flex;
-  align-items center;
-  justify-content center;
-  padding 6px;
-  margin-right 8px;
-  transition all 0.2s;
-}
-
-.action-buttonhover {
-  background #f0f0f0;
-  color #1976d2;
-}
-
-.header-right {
-  display flex;
-  align-items center;
-  gap 8px;
-}
-style 在我现在代码的基础上，你要改进两点，1.比如语义搜索请求收到 你给我介绍一下鎏金天王铜造像
-提取的实体名称 你给我介绍一下鎏金天王铜造像
-执行精确查询 MATCH (n {name 你给我介绍一下鎏金天王铜造像}) ...
-精确查询结果记录数 0
-尝试模糊匹配 MATCH (n) WHERE n.name CONTAINS 你给我介绍一下鎏金天王铜造像 ...
-模糊查询结果记录数 0
-未找到任何匹配的节点
-响应内容 {nodes[],relationships[]}这个后台日志，显示在大模型提取实体时，并没有在“你给我介绍一下鎏金天王铜造像”中提取到我想要的“鎏金天王铜造像”信息，你要改进提取实体的方法，使用大模型进行实体的提取再从知识图谱获取信息，2.在知识图谱回答时候含有思考过程，我希望在我的回答过程中可以有个折叠思考过程的功能，就像chatbox中与大模型对话的形式，思考过程在thinkthink中，还可以点击折叠不去看这个思考过程。
+</style>
