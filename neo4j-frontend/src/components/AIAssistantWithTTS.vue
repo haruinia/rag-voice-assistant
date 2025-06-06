@@ -1,45 +1,48 @@
 <template>
-  <div id="app">
-    <!-- 动态背景 -->
-    <div class="dynamic-background">
+  <div id="app-ai-assistant">
+    <!-- 动态背景 - 保持与 App.vue 接近 -->
+    <div class="ai-background">
       <div class="bg-gradient"></div>
+      <div class="bg-particles"></div>
     </div>
 
-    <!-- 顶部栏 -->
-    <div class="top-bar">
-      <h1 class="app-title">文物领域智能语音助手</h1>
-      <div class="top-actions">
-        <button 
-          class="action-btn" 
-          :class="{ active: isConnected }"
-          id="dbStatus" 
+    <!-- 顶部栏 - 风格与 App.vue 的 nav-bar 接近 -->
+    <div class="top-bar-ai">
+      <h1 class="app-title-ai">文物领域智能语音助手</h1>
+      <div class="top-actions-ai">
+        <!-- 数据库连接状态 -->
+        <button
+          class="action-btn-ai"
+          :class="{ 'active-db': isConnected }"
           title="数据库连接状态"
+          disabled
         >
           <i class="fas fa-database"></i>
         </button>
-        <button 
-          class="action-btn" 
-          :class="{ active: isTTSEnabled }"
+        <!-- 语音播报开关 -->
+        <button
+          class="action-btn-ai"
+          :class="{ 'active-tts': isTTSEnabled }"
           @click="toggleTTS"
-          id="ttsToggle" 
-          title="语音播报"
+          :title="isTTSEnabled ? '关闭语音播报' : '开启语音播报'"
         >
-          <i class="fas fa-volume-up"></i>
+          <i :class="isTTSEnabled ? 'fas fa-volume-up' : 'fas fa-volume-mute'"></i>
         </button>
-        <button 
-          class="action-btn"
-          @click="toggleHistory" 
-          id="historyToggle" 
+        <!-- 对话记录开关 -->
+        <button
+          class="action-btn-ai"
+          @click="toggleHistory"
           title="对话记录"
+          :class="{ 'active-history': showHistory }"
         >
           <i class="fas fa-comments"></i>
         </button>
-        <button 
-          class="action-btn" 
+        <!-- 调试模式开关 -->
+        <button
+          class="action-btn-ai"
           @click="toggleDebug"
-          :class="{ active: debug }"
-          id="settingsBtn" 
-          title="调试模式"
+          :class="{ 'active-debug': debug }"
+          title="切换调试模式"
         >
           <i class="fas fa-bug"></i>
         </button>
@@ -47,36 +50,33 @@
     </div>
 
     <!-- 主要语音助手区域 -->
-    <div class="voice-assistant-container">
+    <div class="voice-assistant-container-new">
       <!-- 语音助手动画 -->
-      <div class="voice-orb" id="voiceOrb">
-        <div 
-          class="orb-core" 
+      <div class="voice-orb-new">
+        <div
+          class="orb-core-new"
           :class="{
-            listening: isListening,
-            speaking: isSpeakingOnlyTTS,
-            thinking: isTyping && !isSpeakingOnlyTTS
+            'listening-new': isListening,
+            'speaking-new': isSpeakingOnlyTTS,
+            'thinking-new': isTyping && !isSpeakingOnlyTTS && !isListening
           }"
-          id="orbCore"
         ></div>
-        <div 
-          class="voice-wave" 
+        <div
+          class="voice-wave-new"
           :class="{
-            listening: isListening,
-            speaking: isSpeakingOnlyTTS
+            'listening-new': isListening,
+            'speaking-new': isSpeakingOnlyTTS
           }"
-          id="voiceWave"
         >
-          <div class="wave-ring"></div>
-          <div class="wave-ring"></div>
-          <div class="wave-ring"></div>
+          <div class="wave-ring-new"></div>
+          <div class="wave-ring-new"></div>
+          <div class="wave-ring-new"></div>
         </div>
-        
+
         <!-- 频谱可视化 -->
-        <div 
-          class="spectrum-visualizer" 
+        <div
+          class="spectrum-visualizer-new"
           :class="{ active: isListening }"
-          id="spectrumVisualizer"
           ref="spectrumVisualizer"
         >
           <!-- 动态生成频谱条 -->
@@ -84,35 +84,33 @@
       </div>
 
       <!-- 状态文字 -->
-      <div class="status-text" id="statusText">
-        {{ interimTranscript || statusText }}
+      <div class="status-text-new">
+        {{ getStatusText }}
       </div>
 
       <!-- 主控制按钮 -->
-      <div class="main-control">
-        <button 
-          class="secondary-btn" 
+      <div class="main-control-new">
+        <button
+          class="secondary-btn-new"
           @click="toggleQuickInput"
-          id="keyboardBtn" 
           title="键盘输入"
+          :class="{ 'active-input': showQuickInput }"
         >
           <i class="fas fa-keyboard"></i>
         </button>
-        
-        <button 
-          class="voice-button" 
-          :class="{ active: isListening }"
+
+        <button
+          class="voice-button-new"
+          :class="{ 'active-listening': isListening }"
           @click="toggleListening"
-          :disabled="!speechRecognitionSupported"
-          id="voiceBtn"
+          :disabled="!speechRecognitionSupported || isTyping"
         >
           <i :class="getVoiceOverlayIcon"></i>
         </button>
-        
-        <button 
-          class="secondary-btn" 
+
+        <button
+          class="secondary-btn-new"
           @click="clearConversations"
-          id="clearBtn" 
           title="清除对话"
         >
           <i class="fas fa-trash"></i>
@@ -121,51 +119,49 @@
     </div>
 
     <!-- 对话记录面板 -->
-    <div 
-      class="conversation-panel" 
+    <div
+      class="conversation-panel-new"
       :class="{ open: showHistory }"
-      id="conversationPanel"
     >
-      <div class="panel-header">
-        <h2 class="panel-title">对话记录</h2>
-        <button 
-          class="close-panel" 
+      <div class="panel-header-new">
+        <h2 class="panel-title-new">对话记录</h2>
+        <button
+          class="close-panel-new"
           @click="closeHistory"
-          id="closePanelBtn"
         >
           <i class="fas fa-times"></i>
         </button>
       </div>
-      <div class="conversation-list" id="conversationList" ref="conversationList">
-        <div 
-          v-for="(msg, index) in chatMessages" 
+      <div class="conversation-list-new" ref="conversationList">
+        <div
+          v-for="(msg, index) in chatMessages"
           :key="index"
-          class="conversation-item"
-          :class="{ 'system-message': msg.role === 'system' }"
+          class="conversation-item-new"
+          :class="{ 'system-message-new': msg.role === 'system', 'user-message-new': msg.role === 'user', 'assistant-message-new': msg.role === 'assistant' }"
         >
-          <div class="conversation-role">
+          <div class="conversation-role-new">
             <i :class="getRoleIcon(msg.role)"></i>
             {{ getRoleName(msg.role) }}
-            <span v-if="msg.source && msg.role === 'assistant'" class="source-badge">
+            <span v-if="msg.source && msg.role === 'assistant'" class="source-badge-new">
               <i :class="getSourceIcon(msg.source)"></i>
               {{ getSourceName(msg.source) }}
             </span>
           </div>
-          <div class="conversation-text">
+          <div class="conversation-text-new">
             <!-- 显示主要内容 -->
             <div v-if="msg.mainContent" v-html="formatMessage(msg.mainContent)"></div>
             <div v-else v-html="formatMessage(msg.content)"></div>
-            
+
             <!-- 调试模式下显示思考过程 -->
-            <div v-if="debug && msg.hasThinking && msg.thinkingContent" class="thinking-block">
+            <div v-if="debug && msg.hasThinking && msg.thinkingContent" class="thinking-block-new">
               <details>
                 <summary>思考过程</summary>
                 <pre>{{ msg.thinkingContent }}</pre>
               </details>
             </div>
-            
+
             <!-- 调试模式下显示查询详情 -->
-            <div v-if="debug && msg.queryDetails" class="query-details">
+            <div v-if="debug && msg.queryDetails" class="query-details-new">
               <details>
                 <summary>查询详情</summary>
                 <pre>{{ JSON.stringify(msg.queryDetails, null, 2) }}</pre>
@@ -177,25 +173,22 @@
     </div>
 
     <!-- 快捷输入区 -->
-    <div 
-      class="quick-input" 
+    <div
+      class="quick-input-new"
       :class="{ visible: showQuickInput }"
-      id="quickInput"
     >
       <textarea
         v-model="userInput"
         @keydown="handleKeydown"
         @input="autoGrowTextarea"
         ref="userInputArea"
-        id="textInput" 
-        placeholder="输入您的问题..." 
+        placeholder="输入您的问题..."
         rows="1"
       ></textarea>
-      <button 
-        class="send-btn" 
+      <button
+        class="send-btn-new"
         @click="sendMessage"
         :disabled="!userInput.trim() || isTyping"
-        id="sendBtn"
       >
         <i class="fas fa-paper-plane"></i>
       </button>
@@ -216,176 +209,84 @@ export default {
     const apiBaseUrl = ref('http://localhost:3000/api/data')
     const aiApiUrl = ref('http://210.27.197.62:11434/api/chat')
     const llmModel = ref('deepseek-r1:32b')
-    
+
     // 聊天相关
     const chatMessages = ref([])
     const userInput = ref('')
-    const statusText = ref('准备就绪，点击开始对话')
-    
+    // internalStatusText 用于存储非 interimTranscript 的状态文本
+    const internalStatusText = ref('准备就绪，点击麦克风开始对话');
+
     // 状态管理
-    const isTyping = ref(false)
-    const isListening = ref(false)
-    const isTTSEnabled = ref(true)
-    const isSpeakingOnlyTTS = ref(false)
-    const isConnected = ref(false)
-    const showHistory = ref(false)
-    const showQuickInput = ref(false)
-    const debug = ref(false)
-    const autoSendOnSpeechEnd = ref(true)
-    
+    const isTyping = ref(false) // AI正在思考/生成文本
+    const isListening = ref(false) // 用户正在语音输入
+    const isTTSEnabled = ref(true) // TTS是否开启
+    const isSpeakingOnlyTTS = ref(false) // AI是否正在纯粹进行TTS播报 (不是生成文本时)
+    const isConnected = ref(false) // 知识库连接状态
+    const showHistory = ref(false) // 是否显示对话历史面板
+    const showQuickInput = ref(false) // 是否显示快捷输入框
+    const debug = ref(false) // 调试模式开关
+    const autoSendOnSpeechEnd = ref(true) // 语音识别结束后是否自动发送
+
     // 语音相关
-    const speechSynthesis = ref(null)
-    const speechRecognition = ref(null)
-    const speechRecognitionSupported = ref(true)
-    const currentUtterance = ref(null)
-    const voices = ref([])
-    const selectedVoiceURI = ref(null)
-    const interimTranscript = ref('')
-    
+    const speechSynthesis = ref(null) // Web Speech API: 语音合成实例
+    const speechRecognition = ref(null) // Web Speech API: 语音识别实例
+    const speechRecognitionSupported = ref(true) // 浏览器是否支持语音识别
+    const currentUtterance = ref(null) // 当前正在播报的 SpeechSynthesisUtterance
+    const voices = ref([]) // 可用的语音列表
+    const selectedVoiceURI = ref(null) // 选中的语音URI
+    const interimTranscript = ref('') // 语音识别的临时结果 (实时显示在UI上)
+
     // UI引用
-    const spectrumVisualizer = ref(null)
-    const conversationList = ref(null)
-    const userInputArea = ref(null)
-    
+    const spectrumVisualizer = ref(null) // 频谱可视化容器
+    const conversationList = ref(null) // 对话列表容器
+    const userInputArea = ref(null) // 文本输入框
+
     // 频谱动画
-    const spectrumBars = ref([])
-    const animationFrameId = ref(null)
+    const spectrumBars = ref([]) // 存储动态生成的频谱条DOM元素
+    const animationFrameId = ref(null) // requestAnimationFrame 的ID，用于停止动画
 
     // 计算属性
     const getVoiceOverlayIcon = computed(() => {
       if (isListening.value) {
-        return 'fas fa-stop'
+        return 'fas fa-stop' // 用户正在录音时显示停止图标
       } else if (isTyping.value && !isSpeakingOnlyTTS.value) {
-        return 'fas fa-spinner fa-spin'
+        return 'fas fa-spinner fa-spin' // AI正在思考或生成文本时显示加载图标
       } else if (isSpeakingOnlyTTS.value) {
-        return 'fas fa-volume-up'
+        return 'fas fa-volume-up' // AI正在播报时显示音量图标
       }
-      return 'fas fa-microphone'
+      return 'fas fa-microphone' // 默认显示麦克风图标
     })
 
-    // 初始化应用
-    const initializeApp = () => {
-      // TTS 初始化
-      if ('speechSynthesis' in window) {
-        speechSynthesis.value = window.speechSynthesis
-        loadVoices()
-        if (speechSynthesis.value.onvoiceschanged !== undefined) {
-          speechSynthesis.value.onvoiceschanged = loadVoices
+    const getStatusText = computed(() => {
+        if (interimTranscript.value) {
+            return `"${interimTranscript.value}"`; // 优先显示语音识别的临时结果
+        } else if (isListening.value) {
+            return '正在听取您的语音...';
+        } else if (isTyping.value && !isSpeakingOnlyTTS.value) {
+            return '正在思考...'; // AI思考中，用动画表示，无需具体文字
+        } else if (isSpeakingOnlyTTS.value) {
+            return '正在为您播报回答...';
         }
-      } else {
-        console.warn('浏览器不支持 SpeechSynthesis API。TTS 功能将不可用。')
-        isTTSEnabled.value = false
-      }
-      
-      // STT 初始化
-      if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
-        const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition
-        speechRecognition.value = new SpeechRecognitionAPI()
-        speechRecognition.value.continuous = false
-        speechRecognition.value.interimResults = true
-        speechRecognition.value.lang = 'zh-CN'
-        
-        speechRecognition.value.onstart = () => {
-          isListening.value = true
-          interimTranscript.value = ''
-          if (speechSynthesis.value && speechSynthesis.value.speaking) {
-            speechSynthesis.value.cancel()
-            isSpeakingOnlyTTS.value = false
-          }
-        }
-        
-        speechRecognition.value.onresult = (event) => {
-          let finalTranscript = ''
-          interimTranscript.value = ''
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            const transcript = event.results[i][0].transcript
-            if (event.results[i].isFinal) {
-              finalTranscript += transcript
-            } else {
-              interimTranscript.value += transcript
-            }
-          }
-          if (finalTranscript.trim() && isListening.value) {
-            userInput.value = finalTranscript.trim()
-          }
-        }
-        
-        speechRecognition.value.onerror = (event) => {
-          console.error('语音识别错误:', event.error)
-          addSystemMessage(`语音识别遇到问题: ${event.error}`)
-          isListening.value = false
-          interimTranscript.value = ''
-          isTyping.value = false
-          isSpeakingOnlyTTS.value = false
-        }
-        
-        speechRecognition.value.onend = () => {
-          isListening.value = false
-          nextTick(() => { interimTranscript.value = '' })
-          if (userInput.value.trim() && autoSendOnSpeechEnd.value) {
-            sendMessage()
-          } else if (userInput.value.trim()) {
-            if (userInputArea.value) userInputArea.value.focus()
-          }
-        }
-      } else {
-        speechRecognitionSupported.value = false
-        addSystemMessage('抱歉，您的浏览器不支持语音输入功能。')
-      }
-      
-      // 初始化消息和测试连接
-      addSystemMessage('您好！我是文物领域智能语音助手，请问有什么可以帮您的？点击麦克风图标可以开始语音输入。')
-      testDatabaseConnection()
-    }
+        return internalStatusText.value; // 显示内部状态文本
+    });
 
-    // 创建频谱条
-    const createSpectrumBars = () => {
-      if (!spectrumVisualizer.value) return
-      
-      for (let i = 0; i < 30; i++) {
-        const bar = document.createElement('div')
-        bar.className = 'spectrum-bar'
-        bar.style.height = '5px'
-        spectrumVisualizer.value.appendChild(bar)
-        spectrumBars.value.push(bar)
-      }
-    }
+    // **核心逻辑方法 - STT -> 文本 -> 实体提取 -> 知识图谱查询 -> LLM 回答 -> TTS**
 
-    // 频谱动画
-    const startSpectrumAnimation = () => {
-      const animate = () => {
-        spectrumBars.value.forEach(bar => {
-          const height = Math.random() * 60 + 5
-          bar.style.height = `${height}px`
-        })
-        animationFrameId.value = requestAnimationFrame(animate)
-      }
-      animate()
-    }
-
-    const stopSpectrumAnimation = () => {
-      if (animationFrameId.value) {
-        cancelAnimationFrame(animationFrameId.value)
-      }
-      spectrumBars.value.forEach(bar => {
-        bar.style.height = '5px'
-      })
-    }
-
-    // STT 控制
+    // 1. STT (Speech-to-Text) 核心触发与控制
     const toggleListening = () => {
       if (!speechRecognitionSupported.value || !speechRecognition.value) {
         addSystemMessage(speechRecognitionSupported.value ? '语音识别未正确初始化。' : '抱歉，您的浏览器不支持语音输入。')
         return
       }
       if (isListening.value) {
-        speechRecognition.value.stop()
+        speechRecognition.value.stop() // 停止录音
+        stopSpectrumAnimation() // 停止频谱动画
       } else {
-        userInput.value = ''
-        nextTick(() => { /* 触发 textarea 自动调整高度 */ })
+        userInput.value = '' // 清空输入框准备接收语音
+        nextTick(() => { autoGrowTextarea() }) // 触发 textarea 自动调整高度
         try {
-          speechRecognition.value.start()
-          startSpectrumAnimation()
+          speechRecognition.value.start() // 开始录音
+          startSpectrumAnimation() // 开始频谱动画
         } catch (e) {
           console.error("无法启动语音识别: ", e)
           addSystemMessage("无法启动语音识别，请检查麦克风权限或配置。")
@@ -394,30 +295,31 @@ export default {
       }
     }
 
-    // 发送消息 - 核心流程入口
+    // 2. 文本处理与核心流程编排 (sendMessage 是整个流程的入口)
     const sendMessage = async () => {
       if (isListening.value) {
-        speechRecognition.value.stop()
+        speechRecognition.value.stop() // 确保语音识别停止
+        stopSpectrumAnimation() // 确保频谱动画停止
       }
       const userMessage = userInput.value.trim()
-      if (!userMessage || isTyping.value) return
+      if (!userMessage || isTyping.value) return // 如果消息为空或AI正在忙碌，则不处理
 
-      // 取消正在进行的TTS播报
+      // 在发送新消息前，取消任何正在进行的TTS播报
       if (speechSynthesis.value && speechSynthesis.value.speaking) {
         speechSynthesis.value.cancel()
         isSpeakingOnlyTTS.value = false
       }
 
       chatMessages.value.push({ role: 'user', content: userMessage, mainContent: userMessage })
-      userInput.value = ''
-      nextTick(() => { autoGrowTextarea() })
-      isTyping.value = true
-      scrollToBottom()
+      userInput.value = '' // 清空输入框
+      nextTick(() => { autoGrowTextarea() }) // 重置文本框高度
+      isTyping.value = true // 设置AI正在处理状态，显示思考动画
+      scrollToBottom() // 滚动到底部
 
-      const thinkingSteps = initializeThinkingSteps(userMessage)
+      const thinkingSteps = initializeThinkingSteps(userMessage) // 初始化思考过程追踪
 
       try {
-        // 实体提取
+        // 2.1 大模型实体提取
         thinkingSteps.entityExtraction.attempted = true
         const extractedEntities = await extractEntitiesWithLLM(userMessage, thinkingSteps)
         thinkingSteps.entityExtraction.results = extractedEntities
@@ -426,17 +328,17 @@ export default {
         let kgResult = null
         let kgSource = 'none'
 
-        // 知识图谱查询
+        // 2.2 知识图谱查询（如果提取到实体且知识库已连接）
         if (extractedEntities.length > 0 && isConnected.value) {
           thinkingSteps.knowledgeGraphLookup.attempted = true
-          const entityToSearch = extractedEntities[0].name
+          const entityToSearch = extractedEntities[0].name // 使用第一个提取到的实体进行查询
           thinkingSteps.knowledgeGraphLookup.entityUsed = entityToSearch
-          kgResult = await queryKnowledgeGraphDirectly(entityToSearch, thinkingSteps)
+          kgResult = await queryKnowledgeGraphDirectly(entityToSearch, thinkingSteps) // 尝试直接查询
           if (!kgResult) {
-            kgResult = await queryKnowledgeGraphSemantically(userMessage, thinkingSteps)
+            kgResult = await queryKnowledgeGraphSemantically(userMessage, thinkingSteps) // 如果直接查询失败，尝试语义搜索
           }
           if (kgResult) {
-            kgSource = thinkingSteps.knowledgeGraphLookup.queryType
+            kgSource = thinkingSteps.knowledgeGraphLookup.queryType // 记录查询类型
             thinkingSteps.knowledgeGraphLookup.success = true
           }
         } else if (!isConnected.value) {
@@ -445,84 +347,84 @@ export default {
           thinkingSteps.knowledgeGraphLookup.resultSummary = '未提取到有效实体，跳过知识图谱查询。'
         }
 
-        // 格式化知识图谱结果
+        // 格式化知识图谱结果为LLM上下文
         if (kgResult) {
           knowledgeContext = formatKnowledgeGraphResults(kgResult)
           thinkingSteps.knowledgeGraphLookup.resultSummary = `通过 ${kgSource} 方式查询 "${thinkingSteps.knowledgeGraphLookup.entityUsed}" 找到 ${kgResult.nodes?.length || 0} 个节点, ${kgResult.relationships?.length || 0} 条关系。`
           thinkingSteps.finalOutcome.source = 'knowledge_graph'
         } else {
-          thinkingSteps.finalOutcome.source = 'model'
+          thinkingSteps.finalOutcome.source = 'model' // 如果没有知识图谱结果，则基于通用模型
         }
 
-        // 构建最终提示词并生成回答
+        // 2.3 LLM Prompt 构建与回答生成
         const finalPrompt = buildFinalPrompt(userMessage, knowledgeContext, thinkingSteps)
         thinkingSteps.answerGeneration.prompt = finalPrompt
 
         const assistantMessage = {
-          role: 'assistant', 
-          content: '', 
-          mainContent: '', 
-          thinkingContent: '', 
+          role: 'assistant',
+          content: '',
+          mainContent: '',
+          thinkingContent: '',
           hasThinking: false,
-          source: thinkingSteps.finalOutcome.source, 
+          source: thinkingSteps.finalOutcome.source,
           thinkingSteps: thinkingSteps,
-          queryDetails: debug.value ? kgResult : null
+          queryDetails: debug.value ? kgResult : null // 调试模式下显示查询详情
         }
         chatMessages.value.push(assistantMessage)
         scrollToBottom()
 
-        await streamLLMResponse(finalPrompt, assistantMessage)
+        await streamLLMResponse(finalPrompt, assistantMessage) // 调用LLM获取流式回答
 
       } catch (error) {
         console.error('[sendMessage] 处理消息时发生顶层错误:', error)
         thinkingSteps.finalOutcome.source = 'error'
         thinkingSteps.finalOutcome.errorMessage = error.message
-        isTyping.value = false
-        isSpeakingOnlyTTS.value = false
-        showError(error, thinkingSteps)
+        isTyping.value = false // 停止思考动画
+        isSpeakingOnlyTTS.value = false // 停止播报状态
+        showError(error, thinkingSteps) // 显示错误信息
       } finally {
-        isTyping.value = false
-        isSpeakingOnlyTTS.value = false
+        isTyping.value = false // 无论成功失败，都停止思考动画
+        isSpeakingOnlyTTS.value = false // 确保播报状态也重置
         nextTick(() => scrollToBottom())
       }
     }
 
-    // 初始化思考步骤
+    // 辅助方法：初始化思考步骤 (用于调试)
     const initializeThinkingSteps = (userInput) => {
       return {
         userInput: userInput,
-        entityExtraction: { 
-          method: 'LLM (专用实体提取)', 
-          attempted: false, 
-          rawInput: userInput, 
-          prompt: null, 
-          rawResponse: null, 
-          results: [], 
-          error: null 
+        entityExtraction: {
+          method: 'LLM (专用实体提取)',
+          attempted: false,
+          rawInput: userInput,
+          prompt: null,
+          rawResponse: null,
+          results: [],
+          error: null
         },
-        knowledgeGraphLookup: { 
-          attempted: false, 
-          entityUsed: null, 
-          queryType: 'none', 
-          queryDetails: null, 
-          success: false, 
-          rawResult: null, 
-          resultSummary: '未尝试知识图谱查询', 
-          error: null 
+        knowledgeGraphLookup: {
+          attempted: false,
+          entityUsed: null,
+          queryType: 'none',
+          queryDetails: null,
+          success: false,
+          rawResult: null,
+          resultSummary: '未尝试知识图谱查询',
+          error: null
         },
-        answerGeneration: { 
-          prompt: null, 
-          llmResponse: null, 
-          error: null 
+        answerGeneration: {
+          prompt: null,
+          llmResponse: null,
+          error: null
         },
-        finalOutcome: { 
-          source: 'model', 
-          errorMessage: null 
+        finalOutcome: {
+          source: 'model',
+          errorMessage: null
         }
       }
     }
 
-    // 实体提取
+    // 3. 大模型实体提取
     const extractEntitiesWithLLM = async (userMessage, thinkingSteps) => {
       const prompt = `任务：请从以下用户问题中，精准地提取出最核心的名词性实体（例如：人名、地名、组织名、物品名称、概念术语等）。
 用户问题：
@@ -548,15 +450,14 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
 }
 或 (如果找不到)：
 {
-  "entities": []
-}`
-      
+  "entities": []}`
+
       thinkingSteps.entityExtraction.prompt = prompt
       try {
         const response = await axios.post(aiApiUrl.value, {
           model: llmModel.value,
           messages: [{ role: 'user', content: prompt }],
-          stream: false,
+          stream: false, // 实体提取请求通常不需要流式响应
           options: { response_format: { type: "json_object" } }
         })
         thinkingSteps.entityExtraction.rawResponse = JSON.stringify(response.data)
@@ -564,7 +465,7 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
         if (extractedData && Array.isArray(extractedData.entities) && extractedData.entities.every(e => typeof e === 'string')) {
           const validEntities = extractedData.entities
             .map(name => name.trim())
-            .filter(name => name.length >= 2 && name.length < 50)
+            .filter(name => name.length >= 2 && name.length < 50) // 过滤掉过短或过长的实体
           return validEntities.map(name => ({ name: name, confidence: null }))
         } else {
           thinkingSteps.entityExtraction.error = "LLM 返回格式不正确或未提取到实体"
@@ -576,7 +477,7 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
       }
     }
 
-    // 从LLM响应中提取JSON
+    // 辅助方法：从LLM响应中提取JSON (LLM有时会包裹在代码块中)
     const extractJSONFromLLMResponse = (response) => {
       if (!response) return null
       let jsonString = ''
@@ -594,7 +495,7 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
       return null
     }
 
-    // 知识图谱直接查询
+    // 4. 知识图谱查询
     const queryKnowledgeGraphDirectly = async (entityName, thinkingSteps) => {
       const encodedEntity = encodeURIComponent(entityName)
       const queryUrl = `${apiBaseUrl.value}/${encodedEntity}`
@@ -622,8 +523,6 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
         return null
       }
     }
-
-    // 知识图谱语义查询
     const queryKnowledgeGraphSemantically = async (userMessage, thinkingSteps) => {
       const queryUrl = `${apiBaseUrl.value}/semantic-search`
       const requestBody = { question: userMessage }
@@ -651,7 +550,7 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
       }
     }
 
-    // 格式化直接查询结果
+    // 辅助方法：格式化直接查询结果 (如果需要的话)
     const formatDirectQueryResult = (data, queriedEntityName) => {
       const result = { nodes: [], relationships: [], _source: 'direct_api' }
       const nodeMap = new Map()
@@ -672,12 +571,12 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
             }
           }
           if (item.relationship && item.node1?.name && item.node2?.name) {
-            result.relationships.push({ 
-              id: `rel_${index}_${item.relationship}`, 
-              type: item.relationship, 
-              startNode: nodeMap.get(item.node1.name), 
-              endNode: nodeMap.get(item.node2.name), 
-              properties: item.relationshipProperties || {} 
+            result.relationships.push({
+              id: `rel_${index}_${item.relationship}`,
+              type: item.relationship,
+              startNode: nodeMap.get(item.node1.name),
+              endNode: nodeMap.get(item.node2.name),
+              properties: item.relationshipProperties || {}
             })
           }
         })
@@ -697,32 +596,32 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
       return result
     }
 
-    // 格式化知识图谱结果为LLM上下文
+    // 辅助方法：格式化知识图谱结果为 LLM 可用的上下文
     const formatKnowledgeGraphResults = (data) => {
       let context = ''
-      const nodesById = {}
+      const nodesById = new Map() // 使用 Map 代替对象，以防键名冲突
       if (data.nodes && data.nodes.length > 0) {
         context += '【相关实体信息】:\n'
         data.nodes.forEach(node => {
-          nodesById[node.id] = node
+          nodesById.set(node.id, node) // 确保用 .set()
           context += `- 实体: ${node.name || node.id}`
           if (node.labels && node.labels.length > 0) context += ` (类型: ${node.labels.join(', ')})`
           const props = Object.entries(node.properties || {})
-            .filter(([key]) => !['name','id','labels'].includes(key.toLowerCase()) && !key.toLowerCase().includes('embedding'))
+            .filter(([key]) => !['name', 'id', 'labels'].includes(key.toLowerCase()) && !key.toLowerCase().includes('embedding'))
             .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
             .join('; ')
           if (props) context += ` | 属性: ${props}\n`
           else context += '\n'
         })
-      } else { 
+      } else {
         context += '【未找到相关实体信息】\n'
         return context.trim()
       }
       if (data.relationships && data.relationships.length > 0) {
         context += '\n【相关关系信息】:\n'
         data.relationships.forEach(rel => {
-          const startNode = nodesById[rel.startNode] || { name: `[节点ID:${rel.startNode}]` }
-          const endNode = nodesById[rel.endNode] || { name: `[节点ID:${rel.endNode}]` }
+          const startNode = nodesById.get(rel.startNode) || { name: `[节点ID:${rel.startNode}]` }
+          const endNode = nodesById.get(rel.endNode) || { name: `[节点ID:${rel.endNode}]` }
           context += `- (${startNode.name}) -[${rel.type}]-> (${endNode.name})`
           const props = Object.entries(rel.properties || {})
             .filter(([key]) => !key.toLowerCase().includes('embedding'))
@@ -731,13 +630,13 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
           if (props) context += ` | 关系属性: ${props}\n`
           else context += '\n'
         })
-      } else { 
+      } else {
         context += '\n【未找到相关关系信息】'
       }
       return context.trim()
     }
 
-    // 构建最终提示词
+    // 5. LLM Prompt 构建
     const buildFinalPrompt = (userMessage, knowledgeContext, thinkingSteps) => {
       const kgAttempted = thinkingSteps.knowledgeGraphLookup.attempted
       const kgSuccess = thinkingSteps.knowledgeGraphLookup.success
@@ -784,35 +683,37 @@ ${baseInstructions}
       }
     }
 
-    // 流式处理LLM响应
+    // 6. LLM 回答（流式处理）
     const streamLLMResponse = async (finalPrompt, assistantMessage) => {
       try {
         const response = await axios.post(aiApiUrl.value, {
           model: llmModel.value,
           messages: [{ role: 'user', content: finalPrompt }],
-          stream: true,
-        }, { responseType: 'text' })
+          stream: true, // 保持此设置，以匹配LLM服务器的预期行为
+        }, { responseType: 'text' }) // 明确声明期望文本响应
 
         let streamedContent = ''
         let mainContentAccumulator = ''
         let thinkingContentAccumulator = ''
         let inThinkingBlock = false
 
+        // 将完整的响应文本按行分割进行处理
         const lines = response.data.split('\n')
 
         for (const line of lines) {
-          if (!line.trim()) continue
+          if (!line.trim()) continue // 跳过空行
           try {
+            // Ollama 的 stream 响应可能会在每行前加 'data: '
             const data = JSON.parse(line.replace('data: ', ''))
             let chunk = ''
             if (data.message?.content) chunk = data.message.content
-            else if (data.response) chunk = data.response
+            else if (data.response) chunk = data.response // 兼容其他LLM的响应格式
 
             if (chunk) {
               streamedContent += chunk
-              assistantMessage.content = streamedContent
+              assistantMessage.content = streamedContent // 完整的原始内容
 
-              // 分离主内容和思考过程
+              // 分离主内容和思考过程 (旧逻辑保留)
               let currentChunkPos = 0
               while (currentChunkPos < chunk.length) {
                 if (inThinkingBlock) {
@@ -841,10 +742,14 @@ ${baseInstructions}
               assistantMessage.thinkingContent = thinkingContentAccumulator
               assistantMessage.hasThinking = thinkingContentAccumulator.trim().length > 0
 
+              // nextTick() 在这里不再强制更新，而是让Vue的响应式系统自行处理
+              // 我们只需要确保滚动到底部
               scrollToBottom()
             }
-            if (data.done) break
+            if (data.done) break //  LLM响应结束标志
           } catch (e) {
+            // 如果某一行不是有效的JSON（例如，可能是LLM在不规范格式下输出的文本），
+            // 则将其作为普通文本追加到相应的内容累加器中
             console.warn("非JSON行或解析错误:", line, e)
             if (!inThinkingBlock) mainContentAccumulator += line + '\n'
             else thinkingContentAccumulator += line + '\n'
@@ -854,7 +759,7 @@ ${baseInstructions}
           }
         }
 
-        // 最终解析
+        // 流式响应结束后，对所有内容进行最终解析，确保思考过程和主内容彻底分离
         const finalParsed = parseThinkTags(streamedContent)
         assistantMessage.content = streamedContent.trim()
         assistantMessage.mainContent = finalParsed.mainContent
@@ -867,42 +772,40 @@ ${baseInstructions}
 
         scrollToBottom()
 
-        // TTS播报
+        // 7. TTS (Text-to-Speech) 播报
+        // 确保仅在最终内容完整且TTS启用时播报一次
         if (isTTSEnabled.value && assistantMessage.mainContent && assistantMessage.role === 'assistant') {
           const textToSpeak = cleanTextForSpeech(assistantMessage.mainContent)
-          startSpeaking(textToSpeak)
+          startSpeaking(textToSpeak) // 调用统一的播报方法
         }
 
       } catch (error) {
+        // 处理LLM API调用失败或解析失败的错误
         const finalErrorMessage = `抱歉，我在尝试回答时遇到了一个内部错误。(${error.message})`
         if (assistantMessage) {
           assistantMessage.content = finalErrorMessage
-          assistantMessage.mainContent = `抱歉，我在尝试回答时遇到了一个内部错误。`
+          assistantMessage.mainContent = `抱歉，我在尝试回答时遇到了一个内部错误。` // TTS播报时更简洁
           assistantMessage.source = 'error'
+          // 调试信息
           if (assistantMessage.thinkingSteps) {
             assistantMessage.thinkingSteps.answerGeneration.error = `LLM API 调用失败: ${error.message}`
             assistantMessage.thinkingSteps.finalOutcome.source = 'error'
             assistantMessage.thinkingSteps.finalOutcome.errorMessage = error.message
           }
         } else {
-          chatMessages.value.push({ 
-            role: 'assistant', 
-            content: finalErrorMessage, 
-            mainContent: `抱歉，我在尝试回答时遇到了一个内部错误。`, 
-            source: 'error', 
-            hasThinking: false 
-          })
+          // 如果还没有 assistantMessage 对象（极少发生），直接添加系统错误消息
+          chatMessages.value.push({ role: 'assistant', content: finalErrorMessage, mainContent: `抱歉，我在尝试回答时遇到了一个内部错误。`, source: 'error', hasThinking: false })
         }
         if (isTTSEnabled.value) {
-          startSpeaking(cleanTextForSpeech(finalErrorMessage))
+          startSpeaking(cleanTextForSpeech(finalErrorMessage)) // 播报错误消息
         }
         scrollToBottom()
       } finally {
-        isTyping.value = false
+        isTyping.value = false // 无论成功或失败，都停止AI思考的动画状态
       }
     }
 
-    // 解析思考标签
+    // 辅助方法：解析 LLM 响应中的 <think> 标签，分离思考过程和主内容
     const parseThinkTags = (text) => {
       if (!text) return { mainContent: '', thinkingContent: '', hasThinking: false }
       let mainContent = ''
@@ -912,91 +815,112 @@ ${baseInstructions}
       let match
       while ((match = thinkRegex.exec(text)) !== null) {
         mainContent += text.substring(lastIndex, match.index)
-        thinkingContent += match[1].trim() + '\n\n'
+        thinkingContent += match[1].trim() + '\n\n' // 提取思考内容
         lastIndex = thinkRegex.lastIndex
       }
-      mainContent += text.substring(lastIndex)
+      mainContent += text.substring(lastIndex) // 获取 <think> 标签之后的所有内容
       mainContent = mainContent.trim()
       thinkingContent = thinkingContent.trim()
-      return { mainContent, thinkingContent, hasThinking: thinkingContent.length > 0 }
+      return { mainContent: mainContent, thinkingContent: thinkingContent, hasThinking: thinkingContent.length > 0 }
     }
 
-    // TTS播报
+    // 7. TTS (Text-to-Speech) 核心播报逻辑
+    // 统一的语音播报方法，确保只播报一次并管理状态
     const startSpeaking = (text) => {
+      // 检查 TTS 是否启用、speechSynthesis 实例是否存在、文本是否为空
       if (!isTTSEnabled.value || !speechSynthesis.value || !text || text.trim().length === 0) {
         console.log("TTS skipped: disabled, no synthesis, or empty text.")
         return
       }
 
+      // 立即取消任何正在进行的播报，防止重叠和重复播报
       if (speechSynthesis.value.speaking) {
         speechSynthesis.value.cancel()
         console.log("TTS cancelled previous speech.")
       }
 
       currentUtterance.value = new SpeechSynthesisUtterance(text)
+      // 尝试使用之前加载的选中语音
       if (selectedVoiceURI.value) {
         const voice = voices.value.find(v => v.voiceURI === selectedVoiceURI.value)
         if (voice) currentUtterance.value.voice = voice
       }
-      if(!currentUtterance.value.voice || !currentUtterance.value.voice.lang.startsWith('zh')) {
+      // 如果没有指定语音或指定语音不支持中文，强制设置为中文
+      if (!currentUtterance.value.voice || !currentUtterance.value.voice.lang.startsWith('zh')) {
         currentUtterance.value.lang = 'zh-CN'
       }
 
+      // 设置播报结束和出错的回调，以正确管理状态
       currentUtterance.value.onend = () => {
         currentUtterance.value = null
-        isSpeakingOnlyTTS.value = false
+        isSpeakingOnlyTTS.value = false // 播报结束，重置状态
         console.log('TTS finished speaking.')
       }
       currentUtterance.value.onerror = (event) => {
         console.error('TTS Error:', event.error)
         currentUtterance.value = null
-        isSpeakingOnlyTTS.value = false
+        isSpeakingOnlyTTS.value = false // 播报出错，重置状态
       }
 
+      // 启动播报前设置状态，表示AI正在播报
       isSpeakingOnlyTTS.value = true
       console.log('TTS starting speech:', text)
       speechSynthesis.value.speak(currentUtterance.value)
     }
 
-    // 加载语音
+    // 辅助方法：加载可用语音 (通常在 mounted 中调用一次)
     const loadVoices = () => {
       if (!speechSynthesis.value) return
-      voices.value = speechSynthesis.value.getVoices()
-      const chineseVoice = voices.value.find(voice => voice.lang.startsWith('zh-CN') && voice.localService)
+      voices.value = speechSynthesis.value.getVoices();
+      // 优先选择本地服务的中文语音
+      const chineseVoice = voices.value.find(voice => voice.lang.startsWith('zh-CN') && voice.localService);
       if (chineseVoice) {
-        selectedVoiceURI.value = chineseVoice.voiceURI
+        selectedVoiceURI.value = chineseVoice.voiceURI;
       } else {
-        const anyChineseVoice = voices.value.find(voice => voice.lang.startsWith('zh-CN'))
-        if(anyChineseVoice) selectedVoiceURI.value = anyChineseVoice.voiceURI
+         // 如果没有本地服务，选择任何可用的中文语音
+         const anyChineseVoice = voices.value.find(voice => voice.lang.startsWith('zh-CN'));
+         if(anyChineseVoice) selectedVoiceURI.value = anyChineseVoice.voiceURI;
       }
     }
 
-    // 清理文本以便TTS播报
+    // 辅助方法：清理文本以便TTS更好地播报 (移除Markdown、HTML等)
     const cleanTextForSpeech = (markdownText) => {
       if (!markdownText) return ''
       let text = markdownText
-      text = text.replace(/```[\s\S]*?```/g, ' (代码部分) ')
-      text = text.replace(/`([^`]+)`/g, '$1')
-      text = text.replace(/!\[(.*?)\]\(.*?\)/g, '(图片: $1) ')
-      text = text.replace(/\[(.*?)\]\(.*?\)/g, '$1')
-      text = text.replace(/^#{1,6}\s+/gm, '')
-      text = text.replace(/(\*\*|__)(.*?)\1/g, '$2')
-      text = text.replace(/(\*|_)(.*?)\1/g, '$2')
-      text = text.replace(/^(-{3,}|\*{3,}|_{3,})$/gm, '')
-      text = text.replace(/^\s*[*+-]\s+/gm, ' ')
-      text = text.replace(/^\s*\d+\.\s+/gm, ' ')
-      text = text.replace(/<\/?[^>]+(>|$)/g, "")
-      text = text.replace(/(\r\n|\n|\r)/gm, " ").replace(/\s+/g, ' ').trim()
+      // 移除代码块 (如 ```js ... ```)
+      text = text.replace(/```[\s\S]*?```/g, ' (代码部分) ');
+      // 移除行内代码 (如 `console.log`)
+      text = text.replace(/`([^`]+)`/g, '$1');
+      // 移除图片 markdown (如 ![alt](url))
+      text = text.replace(/!\[(.*?)\]\(.*?\)/g, '(图片: $1) ');
+      // 移除链接 markdown (如 [text](url))
+      text = text.replace(/\[(.*?)\]\(.*?\)/g, '$1');
+      // 移除Markdown标题 (如 # Title)
+      text = text.replace(/^#{1,6}\s+/gm, '');
+      // 移除加粗/斜体标记 (**strong**, *em*)
+      text = text.replace(/(\*\*|__)(.*?)\1/g, '$2');
+      text = text.replace(/(\*|_)(.*?)\1/g, '$2');
+      // 移除水平线 (---, ***, ___)
+      text = text.replace(/^(-{3,}|\*{3,}|_{3,})$/gm, '');
+      // 移除列表标记 (* item, - item, 1. item)
+      text = text.replace(/^\s*[*+-]\s+/gm, ' ');
+      text = text.replace(/^\s*\d+\.\s+/gm, ' ');
+      // 移除所有HTML标签
+      text = text.replace(/<\/?[^>]+(>|$)/g, "");
+      // 替换所有换行符和多个连续空格为单个空格，并去除首尾空格
+      text = text.replace(/(\r\n|\n|\r)/gm, " ").replace(/\s+/g, ' ').trim();
       return text
     }
+
+    // --- UI/辅助功能方法 ---
 
     // 系统消息
     const addSystemMessage = (content) => {
       const message = {
-        role: 'system', 
-        content: content, 
+        role: 'system',
+        content: content,
         mainContent: content,
-        source: 'system', 
+        source: 'system',
         timestamp: new Date()
       }
       chatMessages.value.push(message)
@@ -1014,9 +938,9 @@ ${baseInstructions}
 
       const errorMsgObject = {
         role: 'assistant',
-        content: fullUserMessage, 
-        mainContent: `抱歉，处理您的请求时遇到了问题：${errorMessage}`,
-        source: 'error', 
+        content: fullUserMessage,
+        mainContent: `抱歉，我在尝试回答时遇到了一个内部错误。`, // TTS播报时更简洁
+        source: 'error',
         thinkingSteps: thinkingSteps
       }
       chatMessages.value.push(errorMsgObject)
@@ -1033,7 +957,7 @@ ${baseInstructions}
         if (response.status === 200) {
           isConnected.value = true
           addSystemMessage('✅ 知识库连接成功！')
-        } else { 
+        } else {
           throw new Error(`连接测试返回状态码: ${response.status}`)
         }
       } catch (error) {
@@ -1045,11 +969,13 @@ ${baseInstructions}
     // 格式化消息（Markdown渲染）
     const formatMessage = (content) => {
       if (!content) return ''
-      const html = marked(content)
+      // marked.parse() 用于将 Markdown 转换为 HTML
+      const html = marked.parse(content)
+      // DOMPurify.sanitize() 用于清理 HTML，防止 XSS 攻击
       return DOMPurify.sanitize(html)
     }
 
-    // UI辅助方法
+    // 文本输入框自动调整高度
     const autoGrowTextarea = () => {
       if (userInputArea.value) {
         userInputArea.value.style.height = 'auto'
@@ -1057,13 +983,17 @@ ${baseInstructions}
       }
     }
 
+    // 键盘事件处理 (Enter 发送，Shift+Enter 换行)
     const handleKeydown = (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault()
+        event.preventDefault() // 阻止默认换行
         sendMessage()
       }
+      // 触发自动调整高度，以防 Shift+Enter 换行时需要调整
+      nextTick(() => { autoGrowTextarea() })
     }
 
+    // 滚动到对话列表底部
     const scrollToBottom = () => {
       nextTick(() => {
         if (conversationList.value) {
@@ -1072,7 +1002,8 @@ ${baseInstructions}
       })
     }
 
-    const toggleTTS = () => {
+    // 对话记录面板显示/隐藏
+    const toggleTTS = () => { // 确保此函数在 setup 返回
       isTTSEnabled.value = !isTTSEnabled.value
       if (!isTTSEnabled.value && speechSynthesis.value && speechSynthesis.value.speaking) {
         speechSynthesis.value.cancel()
@@ -1080,34 +1011,40 @@ ${baseInstructions}
       }
     }
 
+    // 对话记录面板显示/隐藏
     const toggleHistory = () => {
       showHistory.value = !showHistory.value
     }
 
+    // 关闭对话记录面板
     const closeHistory = () => {
       showHistory.value = false
     }
 
+    // 快捷输入区显示/隐藏
     const toggleQuickInput = () => {
       showQuickInput.value = !showQuickInput.value
       if (showQuickInput.value) {
         nextTick(() => {
-          if (userInputArea.value) userInputArea.value.focus()
+          if (userInputArea.value) userInputArea.value.focus() // 显示时自动聚焦输入框
         })
       }
     }
 
+    // 调试模式开关
     const toggleDebug = () => {
       debug.value = !debug.value
     }
 
+    // 清除对话记录
     const clearConversations = () => {
-      if (confirm('确定要清除所有对话记录吗？')) {
+      if (confirm('确定要清除所有对话记录吗？此操作不可撤销。')) {
         chatMessages.value = []
+        addSystemMessage('所有对话记录已清除。')
       }
     }
 
-    // 图标和名称辅助方法
+    // 图标和名称辅助方法 (用于显示角色和来源信息)
     const getRoleIcon = (role) => {
       switch (role) {
         case 'user': return 'fas fa-user'
@@ -1131,6 +1068,7 @@ ${baseInstructions}
         case 'knowledge_graph': return 'fas fa-database'
         case 'model': return 'fas fa-brain'
         case 'error': return 'fas fa-exclamation-triangle'
+        case 'system': return 'fas fa-info-circle' // 系统消息也有来源图标
         default: return 'fas fa-question-circle'
       }
     }
@@ -1140,17 +1078,148 @@ ${baseInstructions}
         case 'knowledge_graph': return '知识库'
         case 'model': return '通用模型'
         case 'error': return '错误'
+        case 'system': return '系统'
         default: return '未知'
       }
     }
 
-    // 生命周期
+    // **频谱动画实现**
+    // 创建频谱条DOM元素
+    const createSpectrumBars = () => {
+      if (!spectrumVisualizer.value) return
+
+      // 防止重复创建
+      if (spectrumBars.value.length > 0) return;
+
+      const numBars = 30; // 频谱条数量
+      for (let i = 0; i < numBars; i++) {
+        const bar = document.createElement('div')
+        bar.className = 'spectrum-bar-new' // 使用新的类名
+        bar.style.height = '5px' // 初始高度
+        // 加入动画延迟，使其看起来更自然
+        bar.style.animationDelay = `${i * 0.03}s`;
+        spectrumVisualizer.value.appendChild(bar)
+        spectrumBars.value.push(bar)
+      }
+    }
+
+    // 启动频谱动画
+    const startSpectrumAnimation = () => {
+      // 停止任何之前的动画帧请求
+      if (animationFrameId.value) {
+        cancelAnimationFrame(animationFrameId.value)
+      }
+      const animate = () => {
+        if (!isListening.value) { // 只有在正在监听时才进行动画
+            stopSpectrumAnimation();
+            return;
+        }
+        spectrumBars.value.forEach(bar => {
+          // 根据实际音频数据调整高度会更好，这里用随机值模拟
+          const height = Math.random() * 60 + 5 // 5px - 65px
+          bar.style.height = `${height}px`
+        })
+        animationFrameId.value = requestAnimationFrame(animate)
+      }
+      animationFrameId.value = requestAnimationFrame(animate) // 首次启动动画
+    }
+
+    // 停止频谱动画并重置高度
+    const stopSpectrumAnimation = () => {
+      if (animationFrameId.value) {
+        cancelAnimationFrame(animationFrameId.value)
+        animationFrameId.value = null
+      }
+      spectrumBars.value.forEach(bar => {
+        bar.style.height = '5px' // 重置为初始高度
+      })
+    }
+
+    // 初始化应用，在 mounted 时调用一次
+    const initializeApp = () => {
+      // TTS 初始化
+      if ('speechSynthesis' in window) {
+        speechSynthesis.value = window.speechSynthesis
+        loadVoices() // 加载可用语音
+        if (speechSynthesis.value.onvoiceschanged !== undefined) {
+          speechSynthesis.value.onvoiceschanged = loadVoices
+        }
+      } else {
+        console.warn('浏览器不支持 SpeechSynthesis API。TTS 功能将不可用。')
+        isTTSEnabled.value = false
+      }
+
+      // STT 初始化
+      if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+        const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition
+        speechRecognition.value = new SpeechRecognitionAPI()
+        speechRecognition.value.continuous = false
+        speechRecognition.value.interimResults = true
+        speechRecognition.value.lang = 'zh-CN'
+
+        speechRecognition.value.onstart = () => {
+          isListening.value = true
+          interimTranscript.value = ''
+          if (speechSynthesis.value && speechSynthesis.value.speaking) {
+            speechSynthesis.value.cancel()
+            isSpeakingOnlyTTS.value = false
+          }
+        }
+
+        speechRecognition.value.onresult = (event) => {
+          let finalTranscript = ''
+          interimTranscript.value = ''
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const transcript = event.results[i][0].transcript
+            if (event.results[i].isFinal) {
+              finalTranscript += transcript
+            } else {
+              interimTranscript.value += transcript
+            }
+          }
+          if (finalTranscript.trim() && isListening.value) {
+            userInput.value = finalTranscript.trim()
+          }
+        }
+
+        speechRecognition.value.onerror = (event) => {
+          console.error('语音识别错误:', event.error)
+          addSystemMessage(`语音识别遇到问题: ${event.error}`)
+          isListening.value = false
+          interimTranscript.value = ''
+          isTyping.value = false
+          isSpeakingOnlyTTS.value = false
+          stopSpectrumAnimation(); // 错误时停止动画
+        }
+
+        speechRecognition.value.onend = () => {
+          isListening.value = false
+          stopSpectrumAnimation(); // 结束时停止动画
+          nextTick(() => { interimTranscript.value = '' })
+          if (userInput.value.trim() && autoSendOnSpeechEnd.value) {
+            sendMessage()
+          } else if (userInput.value.trim()) {
+            if (userInputArea.value) userInputArea.value.focus()
+          }
+        }
+      } else {
+        speechRecognitionSupported.value = false
+        addSystemMessage('抱歉，您的浏览器不支持语音输入功能。')
+      }
+
+      // 初始化消息和测试连接
+      addSystemMessage('您好！我是文物领域智能语音助手，请问有什么可以帮您的？点击麦克风图标可以开始语音输入。')
+      testDatabaseConnection()
+    }
+
+    // 生命周期钩子
     onMounted(() => {
-      initializeApp()
-      createSpectrumBars()
+      initializeApp() // 初始化 TTS, STT, 欢迎消息, 数据库连接
+      createSpectrumBars() // 创建频谱条 DOM 元素
     })
 
     onUnmounted(() => {
+      // 组件卸载时清理所有活动状态
       if (animationFrameId.value) {
         cancelAnimationFrame(animationFrameId.value)
       }
@@ -1162,13 +1231,13 @@ ${baseInstructions}
       }
     })
 
+    // 返回给模板的数据和方法
     return {
       // 数据
       chatMessages,
       userInput,
-      statusText,
       interimTranscript,
-      
+
       // 状态
       isTyping,
       isListening,
@@ -1179,19 +1248,20 @@ ${baseInstructions}
       showQuickInput,
       debug,
       speechRecognitionSupported,
-      
+
       // 计算属性
       getVoiceOverlayIcon,
-      
-      // refs
+      getStatusText, // 新增的计算属性
+
+      // Refs
       spectrumVisualizer,
       conversationList,
       userInputArea,
-      
-      // 方法
+
+      // 方法 (所有在模板中使用的都必须返回)
       toggleListening,
       sendMessage,
-      toggleTTS,
+      toggleTTS, // 确保返回
       toggleHistory,
       closeHistory,
       toggleQuickInput,
@@ -1203,169 +1273,268 @@ ${baseInstructions}
       getRoleIcon,
       getRoleName,
       getSourceIcon,
-      getSourceName
+      getSourceName,
     }
   }
 }
 </script>
 
 <style scoped>
+/* 定义 CSS 变量以便于主题管理，与 App.vue 保持一致 */
+:root {
+  --primary-blue: #2196f3;
+  --primary-blue-dark: #1976d2;
+  --secondary-blue: #03a9f4;
+  --accent-green: #4caf50;
+  --accent-purple: #9c27b0;
+  --background-light: #e3f2fd;
+  --background-medium: #bbdefb;
+  --background-dark: #90caf9;
+  --text-dark: #424242;
+  --text-light: #fff;
+  --border-light: rgba(255, 255, 255, 0.1);
+  --border-dark: rgba(0, 0, 0, 0.1);
+  --shadow-light: rgba(33, 150, 243, 0.1);
+  --shadow-medium: rgba(33, 150, 243, 0.3);
+}
+
+/* 全局重置和基础样式 */
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #000;
-  color: #fff;
-  height: 100vh;
-  overflow: hidden;
-}
-
-#app {
+/* #app-ai-assistant 容器，占据整个视口，并启用 Flex 布局 */
+#app-ai-assistant {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  position: relative;
+  position: relative; /* 用于子元素的定位上下文 */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: var(--text-dark); /* 默认文本颜色改为深色 */
+  background: var(--background-light); /* 默认背景改为浅色 */
+  overflow: hidden; /* 防止内容溢出造成滚动条 */
 }
 
-/* 动态背景 */
-.dynamic-background {
-  position: fixed;
+/* 动态背景层 - 与 App.vue 共享动画和颜色 */
+.ai-background {
+  position: fixed; /* 固定在视口 */
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  z-index: 0;
-  background: #000;
+  z-index: 0; /* 确保在最底层 */
+  background: linear-gradient(135deg, var(--background-light) 0%, var(--background-medium) 50%, var(--background-dark) 100%);
   overflow: hidden;
 }
 
 .bg-gradient {
   position: absolute;
-  width: 150%;
-  height: 150%;
-  top: -25%;
-  left: -25%;
-  background: radial-gradient(circle at 30% 40%, rgba(59, 130, 246, 0.3), transparent 50%),
-              radial-gradient(circle at 70% 60%, rgba(139, 92, 246, 0.3), transparent 50%),
-              radial-gradient(circle at 50% 50%, rgba(34, 197, 94, 0.2), transparent 70%);
-  animation: gradientShift 20s ease-in-out infinite;
+  width: 120%; /* 确保覆盖整个屏幕并有溢出空间进行动画 */
+  height: 120%;
+  top: -10%;
+  left: -10%;
+  /* 径向渐变，形成多个模糊光点效果 */
+  background:
+    radial-gradient(circle at 20% 30%, rgba(33, 150, 243, 0.3) 0%, transparent 50%), /* 蓝色 */
+    radial-gradient(circle at 80% 70%, rgba(3, 169, 244, 0.2) 0%, transparent 50%), /* 浅蓝色 */
+    radial-gradient(circle at 40% 80%, rgba(0, 188, 212, 0.2) 0%, transparent 50%); /* 青色 */
+  filter: blur(40px);
+  animation: gradientFlow 20s ease-in-out infinite; /* 渐变动画 */
+  transition: transform 0.3s ease-out; /* 鼠标视差效果 */
 }
 
-@keyframes gradientShift {
-  0%, 100% { transform: rotate(0deg) scale(1); }
-  33% { transform: rotate(120deg) scale(1.1); }
-  66% { transform: rotate(240deg) scale(0.9); }
+@keyframes gradientFlow {
+  0%, 100% {
+    transform: rotate(0deg) scale(1);
+    filter: blur(40px) brightness(1);
+  }
+  33% {
+    transform: rotate(120deg) scale(1.1);
+    filter: blur(45px) brightness(1.1);
+  }
+  66% {
+    transform: rotate(240deg) scale(0.95);
+    filter: blur(35px) brightness(0.95);
+  }
+}
+
+/* 粒子效果 */
+.bg-particles {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.bg-particles::before,
+.bg-particles::after {
+  content: '';
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  box-shadow:
+    20px 50px 0 rgba(255, 255, 255, 0.6),
+    100px 150px 0 rgba(255, 255, 255, 0.7),
+    200px 80px 0 rgba(255, 255, 255, 0.5),
+    300px 200px 0 rgba(255, 255, 255, 0.6),
+    400px 120px 0 rgba(255, 255, 255, 0.7),
+    500px 180px 0 rgba(255, 255, 255, 0.5);
+  animation: particleFloat 30s linear infinite;
+}
+
+.bg-particles::after {
+  animation-delay: -15s;
+  left: 50%;
+}
+
+@keyframes particleFloat {
+  from {
+    transform: translateY(100vh) translateX(0);
+  }
+  to {
+    transform: translateY(-100vh) translateX(100px);
+  }
 }
 
 /* 顶部栏 */
-.top-bar {
-  position: relative;
+.top-bar-ai {
+  position: relative; /* 确保在背景之上 */
   z-index: 10;
   padding: 20px 30px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.95); /* 浅色半透明背景 */
+  backdrop-filter: blur(20px); /* 磨砂玻璃效果 */
+  box-shadow: 0 2px 20px var(--shadow-light); /* 蓝色系阴影 */
+  border-bottom: 1px solid rgba(33, 150, 243, 0.1);
+  flex-shrink: 0;
 }
 
-.app-title {
+.app-title-ai {
   font-size: 20px;
   font-weight: 600;
   opacity: 0.9;
+  background: linear-gradient(135deg, var(--primary-blue-dark) 0%, var(--primary-blue) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-.top-actions {
+.top-actions-ai {
   display: flex;
   gap: 15px;
 }
 
-.action-btn {
+.action-btn-ai {
   width: 40px;
   height: 40px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: rgba(255, 255, 255, 0.8);
+  border-radius: 12px; /* 方形圆角按钮 */
+  background: rgba(var(--primary-blue-dark), 0.05); /* 浅蓝背景 */
+  border: 1px solid rgba(var(--primary-blue-dark), 0.2);
+  color: var(--primary-blue-dark); /* 蓝色图标 */
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.3s ease;
+  flex-shrink: 0;
+  font-size: 18px;
 }
 
-.action-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
+.action-btn-ai:hover:not(:disabled) {
+  background: rgba(var(--primary-blue-dark), 0.1);
   transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(var(--primary-blue), 0.2);
+}
+.action-btn-ai:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.action-btn-ai.active-db {
+  background: rgba(var(--accent-green), 0.2); /* 绿色 */
+  color: var(--accent-green);
+  border-color: rgba(var(--accent-green), 0.5);
+}
+.action-btn-ai.active-tts {
+  background: rgba(var(--primary-blue), 0.2); /* 蓝色 */
+  color: var(--primary-blue);
+  border-color: rgba(var(--primary-blue), 0.5);
+}
+.action-btn-ai.active-history {
+  background: rgba(var(--primary-blue), 0.2); /* 蓝色 */
+  color: var(--primary-blue);
+  border-color: rgba(var(--primary-blue), 0.5);
+}
+.action-btn-ai.active-debug {
+  background: rgba(var(--accent-purple), 0.2); /* 紫色 */
+  color: var(--accent-purple);
+  border-color: rgba(var(--accent-purple), 0.5);
 }
 
-.action-btn.active {
-  background: rgba(59, 130, 246, 0.3);
-  color: #3b82f6;
-  border-color: rgba(59, 130, 246, 0.5);
-}
 
 /* 主要语音助手区域 */
-.voice-assistant-container {
-  flex: 1;
+.voice-assistant-container-new {
+  flex: 1; /* 占据剩余垂直空间 */
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   position: relative;
   z-index: 5;
+  padding: 20px; /* 增加内边距防止内容贴边 */
 }
 
-/* 语音助手动画 */
-.voice-orb {
+/* 语音助手动画 Orb */
+.voice-orb-new {
   position: relative;
-  width: 200px;
+  width: 200px; /* Orb 外部尺寸 */
   height: 200px;
   margin-bottom: 40px;
 }
 
-.orb-core {
+.orb-core-new {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 120px;
+  width: 120px; /* Orb 核心尺寸 */
   height: 120px;
-  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.3), transparent),
-              linear-gradient(135deg, #1e293b, #334155);
+  background: linear-gradient(135deg, var(--background-light), var(--background-medium)); /* 浅色系背景 */
   border-radius: 50%;
-  box-shadow: 0 0 60px rgba(59, 130, 246, 0.4),
-              inset 0 0 30px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 40px rgba(var(--primary-blue), 0.2), /* 浅蓝色辉光 */
+              inset 0 0 20px rgba(0, 0, 0, 0.1);
   transition: all 0.3s ease;
+  border: 2px solid rgba(var(--primary-blue), 0.1);
 }
 
-.orb-core.listening {
-  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.4), transparent),
-              linear-gradient(135deg, #3b82f6, #2563eb);
-  box-shadow: 0 0 80px rgba(59, 130, 246, 0.6),
+.orb-core-new.listening-new {
+  background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-dark)); /* 监听状态蓝色渐变 */
+  box-shadow: 0 0 60px rgba(var(--primary-blue), 0.5),
               inset 0 0 30px rgba(0, 0, 0, 0.2);
+  border-color: rgba(var(--primary-blue), 0.5);
 }
 
-.orb-core.speaking {
-  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.4), transparent),
-              linear-gradient(135deg, #22c55e, #16a34a);
-  box-shadow: 0 0 80px rgba(34, 197, 94, 0.6),
+.orb-core-new.speaking-new {
+  background: linear-gradient(135deg, var(--accent-green), #388e3c); /* 播报状态绿色渐变 */
+  box-shadow: 0 0 60px rgba(var(--accent-green), 0.5),
               inset 0 0 30px rgba(0, 0, 0, 0.2);
+  border-color: rgba(var(--accent-green), 0.5);
 }
 
-.orb-core.thinking {
-  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.4), transparent),
-              linear-gradient(135deg, #8b5cf6, #7c3aed);
-  box-shadow: 0 0 80px rgba(139, 92, 246, 0.6),
+.orb-core-new.thinking-new {
+  background: linear-gradient(135deg, var(--accent-purple), #7b1fa2); /* 思考状态紫色渐变 */
+  box-shadow: 0 0 60px rgba(var(--accent-purple), 0.5),
               inset 0 0 30px rgba(0, 0, 0, 0.2);
+  border-color: rgba(var(--accent-purple), 0.5);
 }
 
 /* 语音波纹 */
-.voice-wave {
+.voice-wave-new {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -1376,31 +1545,33 @@ body {
   pointer-events: none;
 }
 
-.wave-ring {
+.wave-ring-new {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   width: 120px;
   height: 120px;
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(var(--primary-blue), 0.2);
   border-radius: 50%;
-  opacity: 0;
+  opacity: 0; /* 默认隐藏 */
 }
 
-.listening .wave-ring {
+/* 监听状态的波纹动画 */
+.voice-wave-new.listening-new .wave-ring-new {
   animation: waveExpand 2s ease-out infinite;
-  border-color: rgba(59, 130, 246, 0.6);
+  border-color: rgba(var(--primary-blue), 0.6); /* 蓝色波纹 */
 }
 
-.speaking .wave-ring {
+/* 播报状态的波纹动画 */
+.voice-wave-new.speaking-new .wave-ring-new {
   animation: waveExpand 1.5s ease-out infinite;
-  border-color: rgba(34, 197, 94, 0.6);
+  border-color: rgba(var(--accent-green), 0.6); /* 绿色波纹 */
 }
 
-.wave-ring:nth-child(1) { animation-delay: 0s; }
-.wave-ring:nth-child(2) { animation-delay: 0.5s; }
-.wave-ring:nth-child(3) { animation-delay: 1s; }
+.wave-ring-new:nth-child(1) { animation-delay: 0s; }
+.wave-ring-new:nth-child(2) { animation-delay: 0.5s; }
+.wave-ring-new:nth-child(3) { animation-delay: 1s; }
 
 @keyframes waveExpand {
   0% {
@@ -1409,155 +1580,177 @@ body {
     opacity: 1;
   }
   100% {
-    width: 300px;
+    width: 300px; /* 展开到更大尺寸 */
     height: 300px;
     opacity: 0;
   }
 }
 
 /* 频谱可视化 */
-.spectrum-visualizer {
+.spectrum-visualizer-new {
   position: absolute;
-  bottom: -60px;
+  bottom: -60px; /* 位于 Orb 下方 */
   left: 50%;
   transform: translateX(-50%);
   width: 300px;
   height: 80px;
   display: flex;
-  align-items: flex-end;
+  align-items: flex-end; /* 条从底部生长 */
   justify-content: center;
-  gap: 4px;
-  opacity: 0;
+  gap: 4px; /* 条之间间隔 */
+  opacity: 0; /* 默认隐藏 */
   transition: opacity 0.3s ease;
 }
 
-.spectrum-visualizer.active {
-  opacity: 1;
+.spectrum-visualizer-new.active {
+  opacity: 1; /* 激活时显示 */
 }
 
-.spectrum-bar {
+.spectrum-bar-new {
   width: 4px;
-  background: linear-gradient(to top, rgba(59, 130, 246, 0.8), rgba(139, 92, 246, 0.8));
+  background: linear-gradient(to top, var(--primary-blue), var(--secondary-blue)); /* 渐变色频谱条 */
   border-radius: 2px;
-  transform-origin: bottom;
-  transition: height 0.1s ease;
+  transform-origin: bottom; /* 确保从底部缩放 */
+  transition: height 0.1s ease; /* 高度变化平滑过渡 */
 }
+
 
 /* 状态文字 */
-.status-text {
-  margin-top: 80px;
+.status-text-new {
+  margin-top: 80px; /* 位于 Orb 之后 */
   font-size: 18px;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-dark); /* 文本颜色为深色 */
   text-align: center;
-  min-height: 30px;
+  min-height: 30px; /* 保持高度稳定 */
 }
 
 /* 主控制按钮 */
-.main-control {
+.main-control-new {
   margin-top: 40px;
   display: flex;
   align-items: center;
   gap: 20px;
 }
 
-.voice-button {
+.voice-button-new {
   width: 80px;
   height: 80px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  color: #fff;
+  background: var(--background-medium); /* 浅蓝色背景 */
+  border: 2px solid var(--primary-blue);
+  color: var(--primary-blue); /* 默认蓝色图标 */
   font-size: 32px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 12px rgba(var(--primary-blue), 0.2);
+  flex-shrink: 0;
 }
 
-.voice-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.2);
+.voice-button-new:hover:not(:disabled) {
+  background: var(--background-dark);
   transform: scale(1.05);
+  box-shadow: 0 6px 16px rgba(var(--primary-blue), 0.3);
 }
 
-.voice-button:disabled {
+.voice-button-new:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.voice-button.active {
-  background: rgba(239, 68, 68, 0.8);
-  border-color: #ef4444;
-  animation: pulse 1.5s ease-in-out infinite;
+.voice-button-new.active-listening {
+  background: linear-gradient(135deg, #ef4444, #dc2626); /* 激活状态为红色渐变 */
+  border-color: #dc2626;
+  color: var(--text-light);
+  animation: pulse-red 1.5s ease-in-out infinite; /* 激活状态脉冲动画 */
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
 }
 
-@keyframes pulse {
+@keyframes pulse-red {
   0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
   70% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
   100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
 }
 
-.secondary-btn {
+.secondary-btn-new {
   width: 50px;
   height: 50px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: rgba(255, 255, 255, 0.6);
+  background: var(--background-light); /* 浅背景 */
+  border: 1px solid var(--primary-blue);
+  color: var(--primary-blue); /* 蓝色图标 */
   font-size: 20px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(var(--primary-blue), 0.1);
 }
 
-.secondary-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+.secondary-btn-new:hover:not(:disabled) {
+  background: var(--background-medium);
+  color: var(--primary-blue-dark);
+  box-shadow: 0 4px 12px rgba(var(--primary-blue), 0.2);
 }
+.secondary-btn-new.active-input {
+  background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-dark));
+  color: var(--text-light);
+  border-color: var(--primary-blue-dark);
+  box-shadow: 0 4px 12px rgba(var(--primary-blue), 0.3);
+}
+.secondary-btn-new:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 
 /* 对话记录面板 */
-.conversation-panel {
+.conversation-panel-new {
   position: fixed;
   top: 0;
-  right: -400px;
+  right: -400px; /* 默认隐藏在右侧 */
   width: 400px;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.9);
+  background: rgba(255, 255, 255, 0.98); /* 接近白色，更明亮 */
   backdrop-filter: blur(20px);
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
-  transition: right 0.3s ease;
-  z-index: 15;
+  border-left: 1px solid rgba(var(--primary-blue), 0.1);
+  transition: right 0.3s ease; /* 平滑过渡 */
+  z-index: 15; /* 高于其他内容 */
   display: flex;
   flex-direction: column;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
+  color: var(--text-dark); /* 面板内文本颜色 */
 }
 
-.conversation-panel.open {
-  right: 0;
+.conversation-panel-new.open {
+  right: 0; /* 显示时移入视图 */
 }
 
-.panel-header {
+.panel-header-new {
   padding: 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(var(--primary-blue), 0.1);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  background: linear-gradient(90deg, var(--background-light), var(--background-medium)); /* 渐变标题背景 */
 }
 
-.panel-title {
+.panel-title-new {
   font-size: 18px;
   font-weight: 600;
+  color: var(--primary-blue-dark);
 }
 
-.close-panel {
+.close-panel-new {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--primary-blue), 0.1);
   border: none;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--primary-blue);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1565,265 +1758,358 @@ body {
   transition: all 0.2s ease;
 }
 
-.close-panel:hover {
-  background: rgba(255, 255, 255, 0.2);
+.close-panel-new:hover {
+  background: rgba(var(--primary-blue), 0.2);
 }
 
-.conversation-list {
+.conversation-list-new {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
 }
 
-.conversation-item {
+.conversation-item-new {
   margin-bottom: 16px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--background-light); /* 默认消息背景 */
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--background-medium);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-.conversation-item.system-message {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.3);
+.conversation-item-new.system-message-new {
+  background: rgba(var(--accent-green), 0.1); /* 系统消息背景绿色 */
+  border-color: rgba(var(--accent-green), 0.3);
+}
+.conversation-item-new.user-message-new {
+  background: rgba(var(--primary-blue), 0.1); /* 用户消息背景蓝色 */
+  border-color: rgba(var(--primary-blue), 0.3);
+}
+.conversation-item-new.assistant-message-new {
+  background: rgba(var(--accent-purple), 0.1); /* 助手消息背景紫色 */
+  border-color: rgba(var(--accent-purple), 0.3);
 }
 
-.conversation-role {
+
+.conversation-role-new {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--text-dark);
+  opacity: 0.6;
   margin-bottom: 8px;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.conversation-role i {
+.conversation-role-new i {
   font-size: 14px;
+  color: var(--primary-blue); /* 图标颜色 */
 }
 
-.source-badge {
-  margin-left: auto;
+.source-badge-new {
+  margin-left: auto; /* 推到右侧 */
   font-size: 11px;
   padding: 2px 8px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--primary-blue), 0.1);
   border-radius: 12px;
   display: flex;
   align-items: center;
   gap: 4px;
+  color: var(--primary-blue-dark);
 }
 
-.conversation-text {
+.conversation-text-new {
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text-dark);
   line-height: 1.6;
 }
 
-/* Markdown 样式 */
-.conversation-text :deep(h1),
-.conversation-text :deep(h2),
-.conversation-text :deep(h3),
-.conversation-text :deep(h4),
-.conversation-text :deep(h5),
-.conversation-text :deep(h6) {
+/* Markdown 渲染后的样式 (使用 :deep() 穿透 scoped CSS) */
+.conversation-text-new :deep(h1),
+.conversation-text-new :deep(h2),
+.conversation-text-new :deep(h3),
+.conversation-text-new :deep(h4),
+.conversation-text-new :deep(h5),
+.conversation-text-new :deep(h6) {
   margin-top: 16px;
   margin-bottom: 8px;
   font-weight: 600;
+  color: var(--primary-blue-dark);
 }
 
-.conversation-text :deep(p) {
+.conversation-text-new :deep(p) {
   margin-bottom: 8px;
 }
 
-.conversation-text :deep(ul),
-.conversation-text :deep(ol) {
+.conversation-text-new :deep(ul),
+.conversation-text-new :deep(ol) {
   padding-left: 20px;
   margin-bottom: 8px;
 }
 
-.conversation-text :deep(code) {
-  background: rgba(255, 255, 255, 0.1);
+.conversation-text-new :deep(code) {
+  background: rgba(var(--primary-blue), 0.05);
   padding: 2px 4px;
   border-radius: 3px;
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 0.9em;
+  color: var(--primary-blue-dark); /* 代码颜色 */
 }
 
-.conversation-text :deep(pre) {
-  background: rgba(0, 0, 0, 0.5);
+.conversation-text-new :deep(pre) {
+  background: rgba(var(--primary-blue-dark), 0.08);
   padding: 12px;
   border-radius: 6px;
   overflow-x: auto;
   margin-bottom: 8px;
 }
 
-.conversation-text :deep(pre code) {
+.conversation-text-new :deep(pre code) {
   background: none;
   padding: 0;
+  color: inherit;
 }
 
-.conversation-text :deep(blockquote) {
-  border-left: 3px solid rgba(255, 255, 255, 0.3);
+.conversation-text-new :deep(blockquote) {
+  border-left: 3px solid rgba(var(--primary-blue), 0.3);
   padding-left: 12px;
   margin: 8px 0;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-dark);
+  opacity: 0.7;
 }
 
-.conversation-text :deep(a) {
-  color: #3b82f6;
+.conversation-text-new :deep(a) {
+  color: var(--primary-blue);
   text-decoration: none;
 }
 
-.conversation-text :deep(a:hover) {
+.conversation-text-new :deep(a:hover) {
   text-decoration: underline;
 }
 
 /* 调试信息样式 */
-.thinking-block,
-.query-details {
+.thinking-block-new,
+.query-details-new {
   margin-top: 12px;
   padding: 8px;
-  background: rgba(139, 92, 246, 0.1);
-  border: 1px solid rgba(139, 92, 246, 0.3);
+  background: rgba(var(--accent-purple), 0.1); /* 紫色系背景 */
+  border: 1px solid rgba(var(--accent-purple), 0.3);
   border-radius: 6px;
+  color: var(--text-dark);
+  font-size: 0.8em; /* 调试信息小字体 */
 }
 
-.thinking-block summary,
-.query-details summary {
+.thinking-block-new summary,
+.query-details-new summary {
   cursor: pointer;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  font-size: 1em; /* 继承父元素字体大小 */
+  color: var(--primary-blue-dark);
+  opacity: 0.7;
   user-select: none;
 }
 
-.thinking-block pre,
-.query-details pre {
+.thinking-block-new pre,
+.query-details-new pre {
   margin-top: 8px;
-  font-size: 11px;
-  background: rgba(0, 0, 0, 0.3);
+  font-size: 0.9em; /* 调试代码更小 */
+  background: rgba(0, 0, 0, 0.05); /* 浅色背景 */
   padding: 8px;
   border-radius: 4px;
   overflow-x: auto;
   white-space: pre-wrap;
   word-wrap: break-word;
+  color: var(--primary-blue-dark); /* 绿色系调试文本 */
 }
 
 /* 快捷输入区 */
-.quick-input {
+.quick-input-new {
   position: fixed;
   bottom: 30px;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%); /* 居中 */
   width: 90%;
   max-width: 600px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.9); /* 更明亮的背景 */
   backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 30px;
+  border: 1px solid rgba(var(--primary-blue), 0.1);
+  border-radius: 30px; /* 圆角胶囊形状 */
   padding: 12px 20px;
   display: flex;
-  align-items: flex-end;
+  align-items: flex-end; /* 与按钮对齐 */
   gap: 12px;
-  opacity: 0;
-  transform: translateX(-50%) translateY(100px);
-  transition: all 0.3s ease;
+  opacity: 0; /* 默认隐藏 */
+  transform: translateX(-50%) translateY(100px); /* 默认位于屏幕外下方 */
+  transition: all 0.3s ease; /* 平滑过渡 */
   z-index: 10;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
 }
 
-.quick-input.visible {
+.quick-input-new.visible {
   opacity: 1;
-  transform: translateX(-50%) translateY(0);
+  transform: translateX(-50%) translateY(0); /* 显示时移入视图 */
 }
 
-.quick-input textarea {
+.quick-input-new textarea {
   flex: 1;
   background: none;
   border: none;
-  color: #fff;
+  color: var(--text-dark); /* 文本颜色 */
   font-size: 16px;
   outline: none;
   resize: none;
   font-family: inherit;
   line-height: 1.5;
-  max-height: 120px;
+  max-height: 120px; /* 限制最大高度 */
   overflow-y: auto;
   padding: 0;
 }
 
-.quick-input textarea::placeholder {
-  color: rgba(255, 255, 255, 0.4);
+.quick-input-new textarea::placeholder {
+  color: var(--text-dark);
+  opacity: 0.4;
 }
 
-.send-btn {
+.send-btn-new {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-dark)); /* 蓝色渐变发送按钮 */
   border: none;
-  color: #fff;
+  color: var(--text-light);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s ease;
   flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(var(--primary-blue), 0.2);
 }
 
-.send-btn:hover:not(:disabled) {
-  background: #2563eb;
+.send-btn-new:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--secondary-blue), var(--primary-blue));
   transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(var(--primary-blue), 0.3);
 }
 
-.send-btn:disabled {
+.send-btn-new:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  background: linear-gradient(135deg, rgba(var(--primary-blue), 0.5), rgba(var(--primary-blue-dark), 0.5));
+  box-shadow: none;
 }
 
 /* 响应式设计 */
 @media (max-width: 768px) {
-  .conversation-panel {
-    width: 100%;
-    right: -100%;
+  .top-bar-ai {
+    padding: 15px 20px;
+  }
+  .app-title-ai {
+    font-size: 18px;
+  }
+  .action-btn-ai {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px; /* 小屏幕下圆角小一点 */
   }
 
-  .voice-orb {
+  .voice-orb-new {
     width: 150px;
     height: 150px;
   }
 
-  .orb-core {
+  .orb-core-new {
     width: 100px;
     height: 100px;
   }
-
-  .spectrum-visualizer {
-    width: 250px;
+  .voice-wave-new .wave-ring-new {
+    width: 100px;
+    height: 100px;
   }
-  
-  .quick-input {
+  @keyframes waveExpand {
+    0% {
+      width: 100px;
+      height: 100px;
+      opacity: 1;
+    }
+    100% {
+      width: 250px;
+      height: 250px;
+      opacity: 0;
+    }
+  }
+
+  .spectrum-visualizer-new {
+    width: 250px;
+    bottom: -40px; /* 调整位置 */
+  }
+
+  .status-text-new {
+    font-size: 16px;
+    margin-top: 60px;
+  }
+
+  .main-control-new {
+    gap: 15px;
+  }
+  .voice-button-new {
+    width: 60px;
+    height: 60px;
+    font-size: 24px;
+  }
+  .secondary-btn-new {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+  }
+
+  .conversation-panel-new {
+    width: 100%;
+    right: -100%; /* 确保在小屏幕下完全隐藏 */
+  }
+
+  .quick-input-new {
     width: 95%;
     bottom: 20px;
+    padding: 10px 15px;
+  }
+  .quick-input-new textarea {
+    font-size: 14px;
+  }
+  .send-btn-new {
+    width: 32px;
+    height: 32px;
   }
 }
 
 /* 滚动条样式 */
-.conversation-list::-webkit-scrollbar,
-.quick-input textarea::-webkit-scrollbar {
+.conversation-list-new::-webkit-scrollbar,
+.quick-input-new textarea::-webkit-scrollbar,
+.thinking-block-new pre::-webkit-scrollbar,
+.query-details-new pre::-webkit-scrollbar {
   width: 6px;
+  height: 6px; /* For horizontal scrollbars */
 }
 
-.conversation-list::-webkit-scrollbar-track,
-.quick-input textarea::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.conversation-list::-webkit-scrollbar-thumb,
-.quick-input textarea::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+.conversation-list-new::-webkit-scrollbar-track,
+.quick-input-new textarea::-webkit-scrollbar-track,
+.thinking-block-new pre::-webkit-scrollbar-track,
+.query-details-new pre::-webkit-scrollbar-track {
+  background: rgba(var(--primary-blue), 0.05);
   border-radius: 3px;
 }
 
-.conversation-list::-webkit-scrollbar-thumb:hover,
-.quick-input textarea::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+.conversation-list-new::-webkit-scrollbar-thumb,
+.quick-input-new textarea::-webkit-scrollbar-thumb,
+.thinking-block-new pre::-webkit-scrollbar-thumb,
+.query-details-new pre::-webkit-scrollbar-thumb {
+  background: rgba(var(--primary-blue), 0.2);
+  border-radius: 3px;
+}
+
+.conversation-list-new::-webkit-scrollbar-thumb:hover,
+.quick-input-new textarea::-webkit-scrollbar-thumb:hover,
+.thinking-block-new pre::-webkit-scrollbar-thumb:hover,
+.query-details-new pre::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--primary-blue), 0.3);
 }
 </style>
