@@ -956,7 +956,7 @@ ${baseInstructions}
         const response = await axios.get(apiBaseUrl.value, { timeout: 5000 })
         if (response.status === 200) {
           isConnected.value = true
-          addSystemMessage('✅ 知识库连接成功！')
+          addSystemMessage('文物保护智能平台连接成功！')
         } else {
           throw new Error(`连接测试返回状态码: ${response.status}`)
         }
