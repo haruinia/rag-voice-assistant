@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>安护通智慧陪护服务平台数据驾驶舱</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #0c1829 0%, #1a2f4a 50%, #0f1b2d 100%);
+            color: #ffffff;
+            overflow-x: hidden;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* 几何背景纹理 */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(45deg, transparent 24%, rgba(0, 212, 255, 0.02) 25%, rgba(0, 212, 255, 0.02) 26%, transparent 27%),
+                linear-gradient(-45deg, transparent 24%, rgba(0, 212, 255, 0.02) 25%, rgba(0, 212, 255, 0.02) 26%, transparent 27%);
+            background-size: 30px 30px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* 动态装饰线条 */
+        .decoration-lines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .deco-line {
+            position: absolute;
+            background: linear-gradient(90deg, transparent, #00d4ff, transparent);
+            animation: lineFlow 12s linear infinite;
+            opacity: 0.15;
+        }
+
+        .deco-line:nth-child(1) {
+            top: 30%;
+            width: 100%;
+            height: 1px;
+            animation-delay: 0s;
+        }
+
+        .deco-line:nth-child(2) {
+            top: 60%;
+            width: 100%;
+            height: 1px;
+            animation-delay: 6s;
+        }
+
+        @keyframes lineFlow {
+            0% { transform: translateX(-100%); opacity: 0; }
+            50% { opacity: 0.2; }
+            100% { transform: translateX(100%); opacity: 0; }
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            padding: 20px;
+            max-width: 1920px;
+            margin: 0 auto;
+        }
+
+        /* 标题区域 */
+        .header {
+            position: relative;
+            margin-bottom: 25px;
+            padding: 20px 0;
+            border-top: 2px solid rgba(0, 212, 255, 0.4);
+            border-bottom: 2px solid rgba(0, 212, 255, 0.4);
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .main-title {
+            font-size: 2.2rem;
+            font-weight: bold;
+            background: linear-gradient(90deg, #00d4ff, #40a9ff, #00d4ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+        }
+
+        .timestamp {
+            font-size: 0.9rem;
+            color: #00d4ff;
+            background: rgba(0, 212, 255, 0.1);
+            padding: 8px 20px;
+            border-radius: 20px;
+            border: 1px solid rgba(0, 212, 255, 0.3);
+        }
+
+        /* 顶部指标卡片 */
+        .top-metrics {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+
+        .top-metric-card {
+            background: linear-gradient(135deg, rgba(0, 150, 255, 0.08) 0%, rgba(0, 100, 200, 0.05) 100%);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+            min-height: 120px;
+        }
+
+        .top-metric-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 30px;
+            height: 30px;
+            background: linear-gradient(45deg, #00d4ff 40%, transparent 60%);
+            clip-path: polygon(0 0, 100% 0, 80% 100%, 0 80%);
+        }
+
+        .top-metric-card::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 20px;
+            height: 20px;
+            background: linear-gradient(-135deg, #00d4ff 40%, transparent 60%);
+            clip-path: polygon(20% 0, 100% 0, 100% 100%, 0 100%);
+        }
+
+        .metric-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .metric-icon {
+            width: 40px;
+            height: 40px;
+            background: radial-gradient(circle, rgba(0, 212, 255, 0.3) 30%, transparent 70%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: #00d4ff;
+            margin-right: 15px;
+        }
+
+        .metric-title {
+            color: #ffffff;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .metric-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .metric-main {
+            color: #00d4ff;
+            font-size: 1.8rem;
+            font-weight: bold;
+            text-shadow: 0 0 8px rgba(0, 212, 255, 0.5);
+        }
+
+        .metric-sub {
+            color: #a0d4ff;
+            font-size: 0.8rem;
+            text-align: right;
+        }
+
+        /* 主要内容区域 */
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1.2fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 20px;
+            height: 500px;
+        }
+
+        /* 通用模块样式 */
+        .module {
+            background: linear-gradient(135deg, rgba(0, 150, 255, 0.06) 0%, rgba(0, 100, 200, 0.03) 100%);
+            border: 1px solid rgba(0, 212, 255, 0.25);
+            border-radius: 8px;
+            padding: 18px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .module::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 25px;
+            height: 25px;
+            background: linear-gradient(45deg, #00d4ff 40%, transparent 60%);
+            clip-path: polygon(0 0, 100% 0, 85% 100%, 0 85%);
+        }
+
+        .module::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 15px;
+            height: 15px;
+            background: linear-gradient(-135deg, #00d4ff 40%, transparent 60%);
+            clip-path: polygon(15% 0, 100% 0, 100% 100%, 0 100%);
+        }
+
+        .module-title {
+            color: #00d4ff;
+            font-size: 1rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+            padding-left: 30px;
+            position: relative;
+        }
+
+        .module-title::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 20px;
+            height: 2px;
+            background: #00d4ff;
+        }
+
+        /* 左侧模块 */
+        .left-top {
+            grid-row: 1;
+        }
+
+        .left-bottom {
+            grid-row: 2;
+        }
+
+        /* 中间模块 */
+        .center-top {
+            grid-column: 2;
+            grid-row: 1;
+        }
+
+        .center-bottom {
+            grid-column: 2;
+            grid-row: 2;
+        }
+
+        /* 右侧模块 */
+        .right-top {
+            grid-column: 3;
+            grid-row: 1;
+        }
+
+        .right-bottom {
+            grid-column: 3;
+            grid-row: 2;
+        }
+
+        .chart-content {
+            width: 100%;
+            height: calc(100% - 50px);
+        }
+
+        /* 服务分析概况 */
+        .info-list {
+            height: calc(100% - 50px);
+            overflow: hidden;
+        }
+
+        .info-item {
+            background: rgba(0, 100, 200, 0.08);
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-left: 3px solid #00d4ff;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .info-item::before {
+            content: '';
+            position: absolute;
+            left: -3px;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: linear-gradient(to bottom, #00d4ff, transparent, #00d4ff);
+            animation: itemPulse 4s ease-in-out infinite;
+        }
+
+        @keyframes itemPulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; box-shadow: 0 0 8px #00d4ff; }
+        }
+
+        .info-item:nth-child(2n)::before { animation-delay: 1.5s; }
+        .info-item:nth-child(3n)::before { animation-delay: 3s; }
+
+        .info-time {
+            color: #00d4ff;
+            font-size: 0.85rem;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+
+        .info-content {
+            color: #b8d4ff;
+            font-size: 0.75rem;
+            line-height: 1.4;
+        }
+
+        /* 医院科室表格 */
+        .table-header {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 15px;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.4);
+        }
+
+        .header-cell {
+            text-align: center;
+            color: #00d4ff;
+            font-size: 0.9rem;
+            font-weight: bold;
+            background: rgba(0, 212, 255, 0.08);
+            padding: 8px;
+            border-radius: 4px;
+        }
+
+        .table-body {
+            height: calc(100% - 80px);
+            overflow: hidden;
+        }
+
+        .table-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 8px;
+            padding: 10px;
+            background: rgba(0, 100, 200, 0.06);
+            border-radius: 6px;
+            border: 1px solid rgba(0, 212, 255, 0.15);
+            transition: all 0.3s ease;
+            animation: rowGlow 6s ease-in-out infinite;
+        }
+
+        .table-row:nth-child(2n) { animation-delay: 2s; }
+        .table-row:nth-child(3n) { animation-delay: 4s; }
+
+        @keyframes rowGlow {
+            0%, 90% { border-color: rgba(0, 212, 255, 0.15); }
+            95% { border-color: #00d4ff; box-shadow: 0 0 8px rgba(0, 212, 255, 0.3); }
+            100% { border-color: rgba(0, 212, 255, 0.15); }
+        }
+
+        .table-row:hover {
+            border-color: #00d4ff;
+            box-shadow: 0 0 12px rgba(0, 212, 255, 0.2);
+            transform: scale(1.02);
+        }
+
+        .department-name {
+            color: #ffffff;
+            font-size: 0.85rem;
+            text-align: center;
+        }
+
+        .order-count {
+            color: #00d4ff;
+            font-weight: bold;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        .rating {
+            text-align: center;
+        }
+
+        .stars {
+            color: #ffd700;
+            font-size: 0.8rem;
+            text-shadow: 0 0 5px rgba(255, 215, 0, 0.5);
+        }
+
+        /* 圆形进度图 */
+        .progress-section {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            align-items: center;
+            height: calc(100% - 50px);
+        }
+
+        .progress-card {
+            background: rgba(0, 100, 200, 0.08);
+            border: 1px solid rgba(0, 212, 255, 0.25);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            width: 100%;
+            flex: 1;
+            position: relative;
+        }
+
+        .progress-circle {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 10px;
+            position: relative;
+        }
+
+        .circle-bg {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: conic-gradient(#00d4ff 0deg, #00d4ff calc(var(--progress) * 3.6deg), rgba(0, 212, 255, 0.1) calc(var(--progress) * 3.6deg));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            animation: circleGlow 5s ease-in-out infinite;
+        }
+
+        @keyframes circleGlow {
+            0%, 100% { filter: drop-shadow(0 0 5px rgba(0, 212, 255, 0.3)); }
+            50% { filter: drop-shadow(0 0 15px rgba(0, 212, 255, 0.8)); }
+        }
+
+        .circle-bg::before {
+            content: '';
+            width: 70%;
+            height: 70%;
+            border-radius: 50%;
+            background: rgba(12, 24, 41, 0.95);
+        }
+
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1rem;
+            font-weight: bold;
+            color: #00d4ff;
+            text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+        }
+
+        .progress-label {
+            color: #a0d4ff;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .progress-title {
+            color: #00d4ff;
+            font-size: 0.7rem;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 1400px) {
+            .main-content {
+                grid-template-columns: 1fr;
+                grid-template-rows: repeat(6, auto);
+                height: auto;
+            }
+            
+            .left-top, .left-bottom, .center-top, .center-bottom, .right-top, .right-bottom {
+                grid-column: 1;
+                grid-row: auto;
+            }
+            
+            .top-metrics {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .main-title {
+                font-size: 1.6rem;
+            }
+            
+            .top-metrics {
+                grid-template-columns: 1fr;
+            }
+            
+            .header-content {
+                flex-direction: column;
+                gap: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 动态装饰线条 -->
+    <div class="decoration-lines">
+        <div class="deco-line"></div>
+        <div class="deco-line"></div>
+    </div>
+
+    <div class="container">
+        <!-- 标题区域 -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="main-title">安护通智慧陪护服务平台数据驾驶舱</h1>
+                <div class="timestamp" id="timestamp">2025.06.23 22:46:59 实时数据</div>
+            </div>
+        </header>
+
+        <!-- 顶部指标卡片 -->
+        <section class="top-metrics">
+            <div class="top-metric-card">
+                <div class="metric-header">
+                    <div class="metric-icon">📋</div>
+                    <div class="metric-title">新订单数</div>
+                </div>
+                <div class="metric-content">
+                    <div class="metric-main" id="newOrders">534</div>
+                    <div class="metric-sub">当日新增</div>
+                </div>
+            </div>
+            
+            <div class="top-metric-card">
+                <div class="metric-header">
+                    <div class="metric-icon">🔄</div>
+                    <div class="metric-title">进行中物联单</div>
+                </div>
+                <div class="metric-content">
+                    <div class="metric-main" id="inProgress">17,067</div>
+                    <div class="metric-sub">实时统计</div>
+                </div>
+            </div>
+            
+            <div class="top-metric-card">
+                <div class="metric-header">
+                    <div class="metric-icon">📞</div>
+                    <div class="metric-title">今日询单</div>
+                </div>
+                <div class="metric-content">
+                    <div class="metric-main" id="todayInquiry">696</div>
+                    <div class="metric-sub">咨询服务</div>
+                </div>
+            </div>
+            
+            <div class="top-metric-card">
+                <div class="metric-header">
+                    <div class="metric-icon">⚡</div>
+                    <div class="metric-title">服务中订单</div>
+                </div>
+                <div class="metric-content">
+                    <div class="metric-main" id="serviceOrders">138</div>
+                    <div class="metric-sub">正在服务</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 主要内容区域 -->
+        <section class="main-content">
+            <!-- 左上：服务分析概况 -->
+            <div class="module left-top">
+                <div class="module-title">服务分析概况</div>
+                <div class="info-list">
+                    <div class="info-item">
+                        <div class="info-time">13楼207室 5单 正在上线</div>
+                        <div class="info-content">内科：内科病房 29楼</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-time">19床 6-9床-病区 4门诊正在</div>
+                        <div class="info-content">外科：4病院陪护科 175...</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-time">儿科：结核病分院</div>
+                        <div class="info-content">分院住院楼三单 8科</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-time">妇产：妇产科病房</div>
+                        <div class="info-content">妇产科住院部 3单正在</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-time">骨科：脊柱科病房 3单正在</div>
+                        <div class="info-content">骨科病房 6单</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-time">神经科：神经内科</div>
+                        <div class="info-content">神经科病房 3单正在</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 左下：累计数据统计 -->
+            <div class="module left-bottom">
+                <div class="module-title">累计数据统计</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; height: calc(100% - 50px); align-items: center;">
+                    <div style="text-align: center;">
+                        <div style="color: #a0d4ff; font-size: 0.8rem; margin-bottom: 8px;">累计完成</div>
+                        <div style="color: #00d4ff; font-size: 1.8rem; font-weight: bold; text-shadow: 0 0 8px rgba(0, 212, 255, 0.5);" id="totalCompleted">785,087</div>
+                        <div style="color: #a0d4ff; font-size: 0.7rem; margin-top: 5px;">订单总数</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="color: #a0d4ff; font-size: 0.8rem; margin-bottom: 8px;">累计天数</div>
+                        <div style="color: #00d4ff; font-size: 1.8rem; font-weight: bold; text-shadow: 0 0 8px rgba(0, 212, 255, 0.5);" id="totalDays">4,015,243</div>
+                        <div style="color: #a0d4ff; font-size: 0.7rem; margin-top: 5px;">服务天数</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="color: #a0d4ff; font-size: 0.8rem; margin-bottom: 8px;">科室</div>
+                        <div style="color: #00d4ff; font-size: 1.8rem; font-weight: bold; text-shadow: 0 0 8px rgba(0, 212, 255, 0.5);" id="departments">5,789</div>
+                        <div style="color: #a0d4ff; font-size: 0.7rem; margin-top: 5px;">覆盖科室</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="color: #a0d4ff; font-size: 0.8rem; margin-bottom: 8px;">服务户</div>
+                        <div style="color: #00d4ff; font-size: 1.8rem; font-weight: bold; text-shadow: 0 0 8px rgba(0, 212, 255, 0.5);" id="users">19,677</div>
+                        <div style="color: #a0d4ff; font-size: 0.7rem; margin-top: 5px;">用户总数</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 中上：医院科室服务情况 -->
+            <div class="module center-top">
+                <div class="module-title">医院科室服务情况</div>
+                <div class="table-header">
+                    <div class="header-cell">科室</div>
+                    <div class="header-cell">订单数</div>
+                    <div class="header-cell">满意度评价</div>
+                </div>
+                <div class="table-body">
+                    <div class="table-row">
+                        <div class="department-name">内科</div>
+                        <div class="order-count">4741</div>
+                        <div class="rating"><span class="stars">★★★★★</span></div>
+                    </div>
+                    <div class="table-row">
+                        <div class="department-name">外科</div>
+                        <div class="order-count">7140</div>
+                        <div class="rating"><span class="stars">★★★★★</span></div>
+                    </div>
+                    <div class="table-row">
+                        <div class="department-name">广州市南区</div>
+                        <div class="order-count">2929</div>
+                        <div class="rating"><span class="stars">★★★★★</span></div>
+                    </div>
+                    <div class="table-row">
+                        <div class="department-name">妇产科医院</div>
+                        <div class="order-count">2674</div>
+                        <div class="rating"><span class="stars">★★★★★</span></div>
+                    </div>
+                    <div class="table-row">
+                        <div class="department-name">儿科医院</div>
+                        <div class="order-count">1826</div>
+                        <div class="rating"><span class="stars">★★★★★</span></div>
+                    </div>
+                    <div class="table-row">
+                        <div class="department-name">骨科医院</div>
+                        <div class="order-count">1524</div>
+                        <div class="rating"><span class="stars">★★★★★</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 中下：近15天实收/收款/退款 -->
+            <div class="module center-bottom">
+                <div class="module-title">近15天实收/收款/退款</div>
+                <div id="lineChart" class="chart-content"></div>
+            </div>
+
+            <!-- 右上：本月线上线下对比 -->
+            <div class="module right-top">
+                <div class="module-title">本月线上线下对比</div>
+                <div class="progress-section">
+                    <div class="progress-card">
+                        <div class="progress-title">线上线下订单对比</div>
+                        <div class="progress-circle">
+                            <div class="circle-bg" style="--progress: 97">
+                                <div class="progress-text">97%</div>
+                            </div>
+                        </div>
+                        <div class="progress-label">线上订单</div>
+                    </div>
+                    <div class="progress-card">
+                        <div class="progress-title">线上线下收入对比</div>
+                        <div class="progress-circle">
+                            <div class="circle-bg" style="--progress: 96">
+                                <div class="progress-text">96%</div>
+                            </div>
+                        </div>
+                        <div class="progress-label">线上收入</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右下：日新增/服务订单 -->
+            <div class="module right-bottom">
+                <div class="module-title">日新增/服务订单</div>
+                <div id="barChart" class="chart-content"></div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // 更新时间戳
+        function updateTimestamp() {
+            const now = new Date();
+            const timestamp = now.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            }).replace(/\//g, '.').replace(/\s/g, ' ');
+            document.getElementById('timestamp').textContent = `${timestamp} 实时数据`;
+        }
+
+        // 数字动画效果
+        function animateNumber(element, target, hasComma = false) {
+            const start = 0;
+            const duration = 2000;
+            const increment = target / (duration / 16);
+            let current = start;
+            
+            const timer = setInterval(() => {
+                current += increment;
+                if (current >= target) {
+                    current = target;
+                    clearInterval(timer);
+                }
+                const value = Math.floor(current);
+                element.textContent = hasComma ? value.toLocaleString() : value;
+            }, 16);
+        }
+
+        // 初始化数字动画
+        function initNumberAnimations() {
+            const metrics = [
+                { id: 'newOrders', target: 534, hasComma: false },
+                { id: 'inProgress', target: 17067, hasComma: true },
+                { id: 'todayInquiry', target: 696, hasComma: false },
+                { id: 'serviceOrders', target: 138, hasComma: false },
+                { id: 'totalCompleted', target: 785087, hasComma: true },
+                { id: 'totalDays', target: 4015243, hasComma: true },
+                { id: 'departments', target: 5789, hasComma: true },
+                { id: 'users', target: 19677, hasComma: true }
+            ];
+
+            metrics.forEach(metric => {
+                const element = document.getElementById(metric.id);
+                if (element) {
+                    animateNumber(element, metric.target, metric.hasComma);
+                }
+            });
+        }
+
+        // 初始化折线图
+        function initLineChart() {
+            const chart = echarts.init(document.getElementById('lineChart'));
+            const option = {
+                backgroundColor: 'transparent',
+                grid: { left: '12%', right: '8%', top: '25%', bottom: '25%' },
+                xAxis: {
+                    type: 'category',
+                    data: ['07月', '08月', '09月', '10月', '11月', '12月', '13月', '14月', '15月', '16月', '17月', '18月', '19月', '20月', '21月'],
+                    axisLine: { lineStyle: { color: 'rgba(0, 212, 255, 0.4)' } },
+                    axisLabel: { color: '#7fb3d5', fontSize: 10 },
+                    splitLine: { show: true, lineStyle: { color: 'rgba(0, 212, 255, 0.1)', type: 'dashed' } }
+                },
+                yAxis: {
+                    type: 'value',
+                    axisLine: { lineStyle: { color: 'rgba(0, 212, 255, 0.4)' } },
+                    axisLabel: { color: '#7fb3d5', fontSize: 10, formatter: function(value) { return (value / 10000) + '万'; } },
+                    splitLine: { lineStyle: { color: 'rgba(0, 212, 255, 0.1)', type: 'dashed' } }
+                },
+                legend: { top: '5%', textStyle: { color: '#a0d4ff', fontSize: 11 } },
+                series: [
+                    {
+                        name: '实收',
+                        type: 'line',
+                        data: [85, 92, 88, 95, 89, 98, 92, 105, 97, 102, 94, 108, 99, 110, 105],
+                        lineStyle: { color: '#00d4ff', width: 2, shadowColor: 'rgba(0, 212, 255, 0.4)', shadowBlur: 8 },
+                        itemStyle: { color: '#00d4ff', borderColor: '#ffffff', borderWidth: 2 },
+                        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(0, 212, 255, 0.3)' }, { offset: 1, color: 'rgba(0, 212, 255, 0.05)' }] } },
+                        smooth: true,
+                        symbolSize: 6
+                    },
+                    {
+                        name: '收款',
+                        type: 'line',
+                        data: [78, 85, 81, 88, 82, 91, 85, 98, 90, 95, 87, 101, 92, 103, 98],
+                        lineStyle: { color: '#4ecdc4', width: 2, shadowColor: 'rgba(78, 205, 196, 0.4)', shadowBlur: 8 },
+                        itemStyle: { color: '#4ecdc4', borderColor: '#ffffff', borderWidth: 2 },
+                        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(78, 205, 196, 0.3)' }, { offset: 1, color: 'rgba(78, 205, 196, 0.05)' }] } },
+                        smooth: true,
+                        symbolSize: 6
+                    },
+                    {
+                        name: '退款',
+                        type: 'line',
+                        data: [4.5, 5.2, 4.8, 5.5, 4.9, 5.8, 5.2, 6.5, 5.7, 6.2, 5.4, 6.8, 5.9, 7.0, 6.5],
+                        lineStyle: { color: '#ff8a80', width: 2, shadowColor: 'rgba(255, 138, 128, 0.4)', shadowBlur: 8 },
+                        itemStyle: { color: '#ff8a80', borderColor: '#ffffff', borderWidth: 2 },
+                        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(255, 138, 128, 0.3)' }, { offset: 1, color: 'rgba(255, 138, 128, 0.05)' }] } },
+                        smooth: true,
+                        symbolSize: 6
+                    }
+                ]
+            };
+            chart.setOption(option);
+            window.addEventListener('resize', () => chart.resize());
+        }
+
+        // 初始化柱状图
+        function initBarChart() {
+            const chart = echarts.init(document.getElementById('barChart'));
+            const option = {
+                backgroundColor: 'transparent',
+                grid: { left: '12%', right: '8%', top: '25%', bottom: '25%' },
+                xAxis: {
+                    type: 'category',
+                    data: ['07月', '08月', '09月', '10月', '11月', '12月', '13月', '14月', '15月', '16月', '17月', '18月', '19月', '20月', '21月'],
+                    axisLine: { lineStyle: { color: 'rgba(0, 212, 255, 0.4)' } },
+                    axisLabel: { color: '#7fb3d5', fontSize: 10 }
+                },
+                yAxis: {
+                    type: 'value',
+                    axisLine: { lineStyle: { color: 'rgba(0, 212, 255, 0.4)' } },
+                    axisLabel: { color: '#7fb3d5', fontSize: 10 },
+                    splitLine: { lineStyle: { color: 'rgba(0, 212, 255, 0.1)', type: 'dashed' } }
+                },
+                legend: { top: '5%', textStyle: { color: '#a0d4ff', fontSize: 11 } },
+                series: [
+                    {
+                        name: '日新增订单',
+                        type: 'bar',
+                        data: [15200, 16800, 14500, 17200, 15800, 18500, 16200, 19800, 17500, 18200, 16800, 19500, 17800, 20200, 18900],
+                        itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#ffd700' }, { offset: 0.5, color: '#ffb300' }, { offset: 1, color: '#ff8f00' }] }, shadowColor: 'rgba(255, 215, 0, 0.4)', shadowBlur: 8, borderRadius: [2, 2, 0, 0] },
+                        barWidth: '30%',
+                        barGap: '20%'
+                    },
+                    {
+                        name: '服务订单',
+                        type: 'bar',
+                        data: [12800, 14200, 12100, 14800, 13400, 15100, 13800, 16400, 14700, 15300, 14000, 16200, 14900, 17100, 15800],
+                        itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#00d4ff' }, { offset: 0.5, color: '#0099cc' }, { offset: 1, color: '#006699' }] }, shadowColor: 'rgba(0, 212, 255, 0.4)', shadowBlur: 8, borderRadius: [2, 2, 0, 0] },
+                        barWidth: '30%'
+                    }
+                ]
+            };
+            chart.setOption(option);
+            window.addEventListener('resize', () => chart.resize());
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            updateTimestamp();
+            initNumberAnimations();
+            
+            setTimeout(() => {
+                initLineChart();
+                initBarChart();
+            }, 1000);
+            
+            setInterval(updateTimestamp, 1000);
+        });
+    </script>
+</body>
+</html>

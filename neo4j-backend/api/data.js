@@ -518,107 +518,506 @@ router.post('/query', async (req, res) => {
 });
 
 // 修改语义搜索接口
-router.post('/semantic-search', async (req, res) => {
-  const { question } = req.body;
+// router.post('/semantic-search', async (req, res) => {
+//   const { question } = req.body;
   
-  if (!question) {
-    return res.status(400).json({ message: '问题不能为空' });
-  }
+//   if (!question) {
+//     return res.status(400).json({ message: '问题不能为空' });
+//   }
 
-  console.log(`语义搜索请求收到: "${question}"`);
+//   console.log(`语义搜索请求收到: "${question}"`);
 
-  try {
-    // 简化实体提取 - 对于"XX是谁"类问题直接提取前面的部分
-    const entityPattern = /(.*?)(?:是谁|是什么|的关系|有什么|有哪些|属性)?[\?？]?$/;
-    const match = question.match(entityPattern);
-    let entityName = match ? match[1].trim() : question.trim();
+//   try {
+//     // 简化实体提取 - 对于"XX是谁"类问题直接提取前面的部分
+//     const entityPattern = /(.*?)(?:是谁|是什么|的关系|有什么|有哪些|属性)?[\?？]?$/;
+//     const match = question.match(entityPattern);
+//     let entityName = match ? match[1].trim() : question.trim();
     
-    console.log(`提取的实体名称: "${entityName}"`);
+//     console.log(`提取的实体名称: "${entityName}"`);
     
-    // 直接输出当前查询参数，便于调试
-    console.log(`执行精确查询: MATCH (n {name: "${entityName}"}) ...`);
+//     // 直接输出当前查询参数，便于调试
+//     console.log(`执行精确查询: MATCH (n {name: "${entityName}"}) ...`);
     
-    // 构建查询 - 精确匹配
-    let result = await session.run(`
-      MATCH (n {name: $name})
-      OPTIONAL MATCH (n)-[r]-(m)
-      RETURN n, r, m
-    `, { name: entityName });
+//     // 构建查询 - 精确匹配
+//     let result = await session.run(`
+//       MATCH (n {name: $name})
+//       OPTIONAL MATCH (n)-[r]-(m)
+//       RETURN n, r, m
+//     `, { name: entityName });
     
-    console.log(`精确查询结果记录数: ${result.records.length}`);
+//     console.log(`精确查询结果记录数: ${result.records.length}`);
     
-    // 如果精确匹配没有结果，尝试模糊匹配
-    if (result.records.length === 0) {
-      console.log(`尝试模糊匹配: MATCH (n) WHERE n.name CONTAINS "${entityName}" ...`);
-      result = await session.run(`
-        MATCH (n)
-        WHERE n.name CONTAINS $name
-        OPTIONAL MATCH (n)-[r]-(m)
-        RETURN n, r, m
-        LIMIT 10
-      `, { name: entityName });
+//     // 如果精确匹配没有结果，尝试模糊匹配
+//     if (result.records.length === 0) {
+//       console.log(`尝试模糊匹配: MATCH (n) WHERE n.name CONTAINS "${entityName}" ...`);
+//       result = await session.run(`
+//         MATCH (n)
+//         WHERE n.name CONTAINS $name
+//         OPTIONAL MATCH (n)-[r]-(m)
+//         RETURN n, r, m
+//         LIMIT 10
+//       `, { name: entityName });
       
-      console.log(`模糊查询结果记录数: ${result.records.length}`);
-    }
+//       console.log(`模糊查询结果记录数: ${result.records.length}`);
+//     }
 
-    const response = {
-      nodes: [],
-      relationships: []
-    };
+//     const response = {
+//       nodes: [],
+//       relationships: []
+//     };
 
-    // 处理结果
-    if (result.records.length > 0) {
-      result.records.forEach(record => {
-        const nodeN = record.get('n');
-        const rel = record.get('r');
-        const nodeM = record.get('m');
+//     // 处理结果
+//     if (result.records.length > 0) {
+//       result.records.forEach(record => {
+//         const nodeN = record.get('n');
+//         const rel = record.get('r');
+//         const nodeM = record.get('m');
 
-        // 添加主节点
-        if (nodeN && !response.nodes.some(n => n.id === nodeN.identity.toString())) {
-          console.log(`找到节点: ${nodeN.properties.name || '未命名节点'}`);
-          response.nodes.push({
-            id: nodeN.identity.toString(),
-            labels: nodeN.labels,
-            name: nodeN.properties.name || '未命名节点',
-            properties: nodeN.properties
-          });
-        }
+//         // 添加主节点
+//         if (nodeN && !response.nodes.some(n => n.id === nodeN.identity.toString())) {
+//           console.log(`找到节点: ${nodeN.properties.name || '未命名节点'}`);
+//           response.nodes.push({
+//             id: nodeN.identity.toString(),
+//             labels: nodeN.labels,
+//             name: nodeN.properties.name || '未命名节点',
+//             properties: nodeN.properties
+//           });
+//         }
 
-        // 添加关联节点
-        if (nodeM && !response.nodes.some(n => n.id === nodeM.identity.toString())) {
-          console.log(`找到关联节点: ${nodeM.properties.name || '未命名节点'}`);
-          response.nodes.push({
-            id: nodeM.identity.toString(),
-            labels: nodeM.labels,
-            name: nodeM.properties.name || '未命名节点',
-            properties: nodeM.properties
-          });
-        }
+//         // 添加关联节点
+//         if (nodeM && !response.nodes.some(n => n.id === nodeM.identity.toString())) {
+//           console.log(`找到关联节点: ${nodeM.properties.name || '未命名节点'}`);
+//           response.nodes.push({
+//             id: nodeM.identity.toString(),
+//             labels: nodeM.labels,
+//             name: nodeM.properties.name || '未命名节点',
+//             properties: nodeM.properties
+//           });
+//         }
 
-        // 添加关系
-        if (rel) {
-          response.relationships.push({
-            id: rel.identity.toString(),
-            type: rel.type,
-            startNode: rel.start.toString(),
-            endNode: rel.end.toString(),
-            properties: rel.properties
-          });
-        }
-      });
-    } else {
-      console.log(`未找到任何匹配的节点`);
-    }
+//         // 添加关系
+//         if (rel) {
+//           response.relationships.push({
+//             id: rel.identity.toString(),
+//             type: rel.type,
+//             startNode: rel.start.toString(),
+//             endNode: rel.end.toString(),
+//             properties: rel.properties
+//           });
+//         }
+//       });
+//     } else {
+//       console.log(`未找到任何匹配的节点`);
+//     }
 
-    // 输出完整响应数据
-    console.log(`响应内容: ${JSON.stringify(response)}`);
-    res.json(response);
+//     // 输出完整响应数据
+//     console.log(`响应内容: ${JSON.stringify(response)}`);
+//     res.json(response);
     
-  } catch (error) {
-    console.error('语义搜索时出错:', error);
-    res.status(500).json({ message: '搜索执行失败', error: error.message });
-  }
+//   } catch (error) {
+//     console.error('语义搜索时出错:', error);
+//     res.status(500).json({ message: '搜索执行失败', error: error.message });
+//   }
+// });
+
+
+// === 模糊查询辅助函数 ===
+
+/**
+ * 计算两个字符串的编辑距离（Levenshtein Distance）
+ */
+function levenshteinDistance(str1, str2) {
+    const matrix = [];
+    const len1 = str1.length;
+    const len2 = str2.length;
+
+    if (len1 === 0) return len2;
+    if (len2 === 0) return len1;
+
+    // 初始化矩阵
+    for (let i = 0; i <= len1; i++) {
+        matrix[i] = [i];
+    }
+    for (let j = 0; j <= len2; j++) {
+        matrix[0][j] = j;
+    }
+
+    // 填充矩阵
+    for (let i = 1; i <= len1; i++) {
+        for (let j = 1; j <= len2; j++) {
+            const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
+            matrix[i][j] = Math.min(
+                matrix[i - 1][j] + 1,      // 删除
+                matrix[i][j - 1] + 1,      // 插入
+                matrix[i - 1][j - 1] + cost // 替换
+            );
+        }
+    }
+
+    return matrix[len1][len2];
+}
+
+/**
+ * 计算相似度分数（0-1之间，1表示完全相同）
+ */
+function calculateSimilarity(str1, str2) {
+    const maxLen = Math.max(str1.length, str2.length);
+    if (maxLen === 0) return 1;
+    const distance = levenshteinDistance(str1, str2);
+    return (maxLen - distance) / maxLen;
+}
+
+/**
+ * 简单的汉字转拼音映射（部分常见字，可根据需要扩展）
+ */
+const pinyinMap = {
+    '鎏': 'liu', '刘': 'liu', '留': 'liu', '流': 'liu', '柳': 'liu',
+    '金': 'jin', '进': 'jin', '津': 'jin', '今': 'jin', '近': 'jin',
+    '铜': 'tong', '同': 'tong', '童': 'tong', '通': 'tong',
+    '牛': 'niu', '纽': 'niu', '扭': 'niu',
+    '佛': 'fo', '佛': 'fo', '福': 'fu', '富': 'fu',
+    '像': 'xiang', '象': 'xiang', '向': 'xiang', '响': 'xiang',
+    '天': 'tian', '田': 'tian', '甜': 'tian',
+    '王': 'wang', '望': 'wang', '忘': 'wang', '旺': 'wang',
+    '造': 'zao', '早': 'zao', '枣': 'zao', '燥': 'zao',
+    '青': 'qing', '清': 'qing', '轻': 'qing', '情': 'qing',
+    '白': 'bai', '百': 'bai', '摆': 'bai', '败': 'bai',
+    '瓷': 'ci', '词': 'ci', '慈': 'ci', '磁': 'ci',
+    '壶': 'hu', '湖': 'hu', '胡': 'hu', '虎': 'hu', '户': 'hu',
+    '花': 'hua', '华': 'hua', '化': 'hua', '画': 'hua',
+    '瓶': 'ping', '平': 'ping', '苹': 'ping', '评': 'ping',
+    '碗': 'wan', '万': 'wan', '湾': 'wan', '完': 'wan',
+    '盘': 'pan', '判': 'pan', '盼': 'pan', '攀': 'pan'
+};
+
+/**
+ * 将文本转换为拼音
+ */
+function textToPinyin(text) {
+    return text.split('').map(char => pinyinMap[char] || char).join('');
+}
+
+/**
+ * 拼音相似度匹配
+ */
+function pinyinSimilarity(str1, str2) {
+    const pinyin1 = textToPinyin(str1);
+    const pinyin2 = textToPinyin(str2);
+    return calculateSimilarity(pinyin1, pinyin2);
+}
+
+/**
+ * 增强的模糊搜索函数
+ */
+/**
+ * 增强的模糊搜索函数 (修正版)
+ */
+async function enhancedFuzzySearch(searchText, session) {
+    console.log(`开始增强模糊搜索: "${searchText}"`);
+    
+    const results = [];
+    // 不再需要 processedNodes，因为后续的接口会处理
+    
+    // 1. 精确匹配
+    console.log('1. 尝试精确匹配...');
+    try {
+        const exactResult = await session.run(`
+            MATCH (n {name: $name})
+            OPTIONAL MATCH (n)-[r]-(m)
+            RETURN n, r, m
+        `, { name: searchText });
+        
+        if (exactResult.records.length > 0) {
+            console.log(`精确匹配找到 ${exactResult.records.length} 条记录`);
+            // *** 关键修正 ***
+            results.push(...exactResult.records.map(record => ({
+                record: record, // 包装原始 record
+                score: 1.0,
+                matchType: 'exact'
+            })));
+        }
+    } catch (error) {
+        console.error('精确匹配出错:', error);
+    }
+
+    // 2. CONTAINS 模糊匹配
+    if (results.length === 0) {
+        console.log('2. 尝试 CONTAINS 模糊匹配...');
+        try {
+            const containsResult = await session.run(`
+                MATCH (n)
+                WHERE n.name CONTAINS $name
+                OPTIONAL MATCH (n)-[r]-(m)
+                RETURN n, r, m
+                LIMIT 10
+            `, { name: searchText });
+            
+            if (containsResult.records.length > 0) {
+                console.log(`CONTAINS 匹配找到 ${containsResult.records.length} 条记录`);
+                // *** 关键修正 ***
+                results.push(...containsResult.records.map(record => ({
+                    record: record, // 包装原始 record
+                    score: 0.8,
+                    matchType: 'contains'
+                })));
+            }
+        } catch (error) {
+            console.error('CONTAINS 匹配出错:', error);
+        }
+    }
+
+    // 3. 编辑距离模糊匹配
+    if (results.length === 0) {
+        console.log('3. 尝试编辑距离模糊匹配...');
+        try {
+            const allNodesResult = await session.run(`
+                MATCH (n) WHERE n.name IS NOT NULL RETURN n.name as name LIMIT 1000
+            `);
+            
+            const candidates = [];
+            allNodesResult.records.forEach(record => {
+                const nodeName = record.get('name');
+                const similarity = calculateSimilarity(searchText, nodeName);
+                const threshold = searchText.length <= 3 ? 0.6 : 0.5;
+                if (similarity >= threshold) {
+                    candidates.push({ name: nodeName, similarity: similarity });
+                }
+            });
+            
+            candidates.sort((a, b) => b.similarity - a.similarity);
+            const topCandidates = candidates.slice(0, 5);
+            
+            console.log(`编辑距离匹配找到 ${topCandidates.length} 个候选节点:`, 
+                       topCandidates.map(c => `${c.name}(${c.similarity.toFixed(2)})`));
+            
+            for (const candidate of topCandidates) {
+                const candidateResult = await session.run(`
+                    MATCH (n {name: $name}) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m
+                `, { name: candidate.name });
+                
+                // *** 关键修正 ***
+                results.push(...candidateResult.records.map(record => ({
+                    record: record, // 包装原始 record
+                    score: candidate.similarity,
+                    matchType: 'edit_distance'
+                })));
+            }
+        } catch (error) {
+            console.error('编辑距离匹配出错:', error);
+        }
+    }
+
+    // 4. 拼音相似度匹配
+    if (results.length === 0) {
+        console.log('4. 尝试拼音相似度匹配...');
+        try {
+            const allNodesResult = await session.run(`
+                MATCH (n) WHERE n.name IS NOT NULL RETURN n.name as name LIMIT 1000
+            `);
+            
+            const pinyinCandidates = [];
+            allNodesResult.records.forEach(record => {
+                const nodeName = record.get('name');
+                const pinyinSim = pinyinSimilarity(searchText, nodeName);
+                if (pinyinSim >= 0.7) {
+                    pinyinCandidates.push({ name: nodeName, similarity: pinyinSim });
+                }
+            });
+            
+            pinyinCandidates.sort((a, b) => b.similarity - a.similarity);
+            const topPinyinCandidates = pinyinCandidates.slice(0, 3);
+            
+            console.log(`拼音匹配找到 ${topPinyinCandidates.length} 个候选节点:`, 
+                       topPinyinCandidates.map(c => `${c.name}(${c.similarity.toFixed(2)})`));
+            
+            for (const candidate of topPinyinCandidates) {
+                const candidateResult = await session.run(`
+                    MATCH (n {name: $name}) OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m
+                `, { name: candidate.name });
+                
+                // *** 关键修正 ***
+                results.push(...candidateResult.records.map(record => ({
+                    record: record, // 包装原始 record
+                    score: candidate.similarity,
+                    matchType: 'pinyin'
+                })));
+            }
+        } catch (error) {
+            console.error('拼音匹配出错:', error);
+        }
+    }
+
+    return results;
+}
+
+// === 修改现有的语义搜索接口 ===
+router.post('/semantic-search', async (req, res) => {
+    const { question } = req.body;
+    
+    if (!question) {
+        return res.status(400).json({ message: '问题不能为空' });
+    }
+
+    console.log(`语义搜索请求收到: "${question}"`);
+
+    try {
+        // 简化实体提取
+        const entityPattern = /(.*?)(?:是谁|是什么|的关系|有什么|有哪些|属性)?[\?？]?$/;
+        const match = question.match(entityPattern);
+        let entityName = match ? match[1].trim() : question.trim();
+        
+        console.log(`提取的实体名称: "${entityName}"`);
+        
+        // 使用增强的模糊搜索
+        const searchResults = await enhancedFuzzySearch(entityName, session);
+        
+        const response = {
+            nodes: [],
+            relationships: [],
+            searchInfo: {
+                originalQuery: entityName,
+                totalMatches: searchResults.length,
+                matchTypes: [...new Set(searchResults.map(r => r.matchType))]
+            }
+        };
+
+        // 处理搜索结果
+        if (searchResults.length > 0) {
+            const nodeMap = new Map();
+            
+            searchResults.forEach(record => {
+                const nodeN = record.get('n');
+                const rel = record.get('r');
+                const nodeM = record.get('m');
+
+                // 添加主节点
+                if (nodeN && !nodeMap.has(nodeN.identity.toString())) {
+                    const nodeInfo = {
+                        id: nodeN.identity.toString(),
+                        labels: nodeN.labels,
+                        name: nodeN.properties.name || '未命名节点',
+                        properties: nodeN.properties,
+                        matchScore: record.score || 0,
+                        matchType: record.matchType || 'unknown'
+                    };
+                    nodeMap.set(nodeN.identity.toString(), nodeInfo);
+                    response.nodes.push(nodeInfo);
+                    
+                    console.log(`找到节点: ${nodeInfo.name} (匹配度: ${(record.score * 100).toFixed(1)}%, 类型: ${record.matchType})`);
+                }
+
+                // 添加关联节点
+                if (nodeM && !nodeMap.has(nodeM.identity.toString())) {
+                    const nodeInfo = {
+                        id: nodeM.identity.toString(),
+                        labels: nodeM.labels,
+                        name: nodeM.properties.name || '未命名节点',
+                        properties: nodeM.properties,
+                        matchScore: 0, // 关联节点不参与匹配评分
+                        matchType: 'related'
+                    };
+                    nodeMap.set(nodeM.identity.toString(), nodeInfo);
+                    response.nodes.push(nodeInfo);
+                }
+
+                // 添加关系
+                if (rel) {
+                    const relExists = response.relationships.some(r => r.id === rel.identity.toString());
+                    if (!relExists) {
+                        response.relationships.push({
+                            id: rel.identity.toString(),
+                            type: rel.type,
+                            startNode: rel.start.toString(),
+                            endNode: rel.end.toString(),
+                            properties: rel.properties
+                        });
+                    }
+                }
+            });
+            
+            // 按匹配分数排序节点
+            response.nodes.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+        } else {
+            console.log(`未找到任何匹配的节点`);
+        }
+
+        console.log(`最终响应: ${response.nodes.length} 个节点, ${response.relationships.length} 个关系`);
+        console.log(`匹配类型: ${response.searchInfo.matchTypes.join(', ')}`);
+        
+        res.json(response);
+        
+    } catch (error) {
+        console.error('语义搜索时出错:', error);
+        res.status(500).json({ message: '搜索执行失败', error: error.message });
+    }
 });
+
+router.post('/fuzzy-search', async (req, res) => {
+    const { searchText, threshold = 0.5 } = req.body;
+    
+    if (!searchText) {
+        return res.status(400).json({ message: '搜索文本不能为空' });
+    }
+
+    console.log(`模糊搜索请求: "${searchText}", 阈值: ${threshold}`);
+
+    try {
+        const searchResults = await enhancedFuzzySearch(searchText, session);
+        
+        const filteredResults = searchResults.filter(result => 
+            (result.score || 0) >= threshold
+        );
+
+        const response = {
+            nodes: [],
+            relationships: [],
+            searchInfo: {
+                originalQuery: searchText,
+                threshold: threshold,
+                totalMatches: filteredResults.length,
+                matchTypes: [...new Set(filteredResults.map(r => r.matchType))]
+            }
+        };
+
+        const nodeMap = new Map();
+        
+        filteredResults.forEach(resultItem => {
+            const neo4jRecord = resultItem.record; 
+            
+            if (!neo4jRecord) {
+                console.warn('发现一个没有 neo4jRecord 的搜索结果项:', resultItem);
+                return;
+            }
+
+            const nodeN = neo4jRecord.get('n');
+            
+            if (nodeN && !nodeMap.has(nodeN.identity.toString())) {
+                const nodeInfo = {
+                    id: nodeN.identity.toString(),
+                    labels: nodeN.labels,
+                    name: nodeN.properties.name || '未命名节点',
+                    properties: nodeN.properties,
+                    matchScore: resultItem.score || 0,
+                    matchType: resultItem.matchType || 'unknown'
+                };
+                nodeMap.set(nodeN.identity.toString(), nodeInfo);
+                response.nodes.push(nodeInfo);
+            }
+        });
+        
+        response.nodes.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+        
+        console.log(`模糊搜索完成: ${response.nodes.length} 个匹配节点`);
+        res.json(response);
+        
+    } catch (error) {
+        console.error('模糊搜索时出错:', error);
+        res.status(500).json({ message: '模糊搜索失败', error: error.message });
+    }
+});
+
+
+
 
 // 导出路由
 module.exports = router;

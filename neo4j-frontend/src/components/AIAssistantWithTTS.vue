@@ -19,6 +19,15 @@
         >
           <i class="fas fa-database"></i>
         </button>
+        <!-- 语音识别模式切换 -->
+        <button
+          class="action-btn-ai"
+          @click="toggleASRMode"
+          :class="{ 'active-browser': useBrowserASR }"
+          :title="useBrowserASR ? '切换到阿里云语音识别' : '切换到浏览器语音识别'"
+        >
+          <i :class="useBrowserASR ? 'fas fa-globe' : 'fas fa-cloud'"></i>
+        </button>
         <!-- 语音播报开关 -->
         <button
           class="action-btn-ai"
@@ -103,7 +112,7 @@
           class="voice-button-new"
           :class="{ 'active-listening': isListening }"
           @click="toggleListening"
-          :disabled="!speechRecognitionSupported || isTyping"
+          :disabled="isTyping"
         >
           <i :class="getVoiceOverlayIcon"></i>
         </button>
@@ -198,6 +207,7 @@
 
 <script>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { AlibabaSpeechService } from './AlibabaSpeechService.js'
 import axios from 'axios'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -205,121 +215,283 @@ import DOMPurify from 'dompurify'
 export default {
   name: 'AIAssistantWithTTS',
   setup() {
-    // API 配置
-    const apiBaseUrl = ref('http://localhost:3000/api/data')
-    const aiApiUrl = ref('http://210.27.197.62:11434/api/chat')
-    const llmModel = ref('deepseek-r1:32b')
+    // --- START: API CONFIGURATION ---
+    // 知识库 API，保持不变
+    const apiBaseUrl = ref('http://localhost:3000/api/data');
+
+    // --- MODIFIED: Corrected environment variable access for Vue CLI/Webpack ---
+    // DeepSeek API 配置
+    // 从 .env.local 文件安全地读取 API Key (使用 process.env)
+    const deepSeekApiKey = ref(process.env.VUE_APP_DEEPSEEK_API_KEY);
+    // DeepSeek 官方 API 端点
+    const aiApiUrl = ref('https://api.deepseek.com/v1/chat/completions');
+    // DeepSeek 官方推荐的聊天模型
+    const llmModel = ref('deepseek-chat');
+    // --- END: API CONFIGURATION ---
+
+    // 语音服务配置
+    const alibabaSpeechConfig = {
+      appKey: 'yXfaTeWXf28V9pEh',
+      tokenApiUrl: 'http://localhost:3000/api/get-speech-token',
+    };
+    const speechService = ref(null);
+
+    // 语音识别模式
+    const useBrowserASR = ref(false); // 是否使用浏览器原生语音识别
+    const browserRecognition = ref(null); // 浏览器语音识别实例
 
     // 聊天相关
     const chatMessages = ref([])
     const userInput = ref('')
-    // internalStatusText 用于存储非 interimTranscript 的状态文本
     const internalStatusText = ref('准备就绪，点击麦克风开始对话');
 
     // 状态管理
-    const isTyping = ref(false) // AI正在思考/生成文本
-    const isListening = ref(false) // 用户正在语音输入
-    const isTTSEnabled = ref(true) // TTS是否开启
-    const isSpeakingOnlyTTS = ref(false) // AI是否正在纯粹进行TTS播报 (不是生成文本时)
-    const isConnected = ref(false) // 知识库连接状态
-    const showHistory = ref(false) // 是否显示对话历史面板
-    const showQuickInput = ref(false) // 是否显示快捷输入框
-    const debug = ref(false) // 调试模式开关
-    const autoSendOnSpeechEnd = ref(true) // 语音识别结束后是否自动发送
+    const isTyping = ref(false)
+    const isListening = ref(false)
+    const isTTSEnabled = ref(true)
+    const isSpeakingOnlyTTS = ref(false)
+    const isConnected = ref(false)
+    const showHistory = ref(false)
+    const showQuickInput = ref(false)
+    const debug = ref(false)
+    const interimTranscript = ref('')
+    
+    // 音频解锁相关状态
+    const isAudioUnlocked = ref(false);
+    const queuedWelcomeMessage = ref(null);
 
-    // 语音相关
-    const speechSynthesis = ref(null) // Web Speech API: 语音合成实例
-    const speechRecognition = ref(null) // Web Speech API: 语音识别实例
-    const speechRecognitionSupported = ref(true) // 浏览器是否支持语音识别
-    const currentUtterance = ref(null) // 当前正在播报的 SpeechSynthesisUtterance
-    const voices = ref([]) // 可用的语音列表
-    const selectedVoiceURI = ref(null) // 选中的语音URI
-    const interimTranscript = ref('') // 语音识别的临时结果 (实时显示在UI上)
+    // UI引用和频谱动画
+    const spectrumVisualizer = ref(null)
+    const conversationList = ref(null)
+    const userInputArea = ref(null)
+    const spectrumBars = ref([])
+    const animationFrameId = ref(null)
 
-    // UI引用
-    const spectrumVisualizer = ref(null) // 频谱可视化容器
-    const conversationList = ref(null) // 对话列表容器
-    const userInputArea = ref(null) // 文本输入框
+    // 音频解锁函数
+    const tryUnlockAudio = () => {
+      if (isAudioUnlocked.value) return;
+      isAudioUnlocked.value = true;
+      console.log('Audio context unlock attempted.');
+      
+      if (queuedWelcomeMessage.value) {
+        console.log('Playing queued welcome message.');
+        startSpeaking(queuedWelcomeMessage.value, true);
+        queuedWelcomeMessage.value = null;
+      }
+    };
+    
+    // TTS 播报函数
+    const startSpeaking = (text, isSystemMessage = false) => {
+      if (!isTTSEnabled.value || !text || text.trim().length === 0) {
+        return;
+      }
+      
+      if (isSystemMessage && !isAudioUnlocked.value) {
+        console.log(`Audio not unlocked. Queuing welcome message: "${text}"`);
+        queuedWelcomeMessage.value = text;
+        return;
+      }
+      
+      if (!speechService.value) {
+          console.error("Speech service not available to speak.");
+          return;
+      }
 
-    // 频谱动画
-    const spectrumBars = ref([]) // 存储动态生成的频谱条DOM元素
-    const animationFrameId = ref(null) // requestAnimationFrame 的ID，用于停止动画
+      const cleanedText = cleanTextForSpeech(text);
+      if (cleanedText) {
+        speechService.value.synthesize(cleanedText);
+      }
+    };
 
     // 计算属性
     const getVoiceOverlayIcon = computed(() => {
-      if (isListening.value) {
-        return 'fas fa-stop' // 用户正在录音时显示停止图标
-      } else if (isTyping.value && !isSpeakingOnlyTTS.value) {
-        return 'fas fa-spinner fa-spin' // AI正在思考或生成文本时显示加载图标
-      } else if (isSpeakingOnlyTTS.value) {
-        return 'fas fa-volume-up' // AI正在播报时显示音量图标
-      }
-      return 'fas fa-microphone' // 默认显示麦克风图标
-    })
-
+        if (isListening.value) { return 'fas fa-stop' }
+        else if (isTyping.value && !isSpeakingOnlyTTS.value) { return 'fas fa-spinner fa-spin' }
+        else if (isSpeakingOnlyTTS.value) { return 'fas fa-volume-up' }
+        return 'fas fa-microphone'
+    });
     const getStatusText = computed(() => {
-        if (interimTranscript.value) {
-            return `"${interimTranscript.value}"`; // 优先显示语音识别的临时结果
-        } else if (isListening.value) {
-            return '正在听取您的语音...';
-        } else if (isTyping.value && !isSpeakingOnlyTTS.value) {
-            return '正在思考...'; // AI思考中，用动画表示，无需具体文字
-        } else if (isSpeakingOnlyTTS.value) {
-            return '正在为您播报回答...';
-        }
-        return internalStatusText.value; // 显示内部状态文本
+        if (interimTranscript.value) { return `"${interimTranscript.value}"`; }
+        else if (isListening.value) { return '正在听取您的语音...'; }
+        else if (isTyping.value && !isSpeakingOnlyTTS.value) { return '正在思考...'; }
+        else if (isSpeakingOnlyTTS.value) { return '正在为您播报回答...'; }
+        return internalStatusText.value;
     });
 
-    // **核心逻辑方法 - STT -> 文本 -> 实体提取 -> 知识图谱查询 -> LLM 回答 -> TTS**
-
-    // 1. STT (Speech-to-Text) 核心触发与控制
-    const toggleListening = () => {
-      if (!speechRecognitionSupported.value || !speechRecognition.value) {
-        addSystemMessage(speechRecognitionSupported.value ? '语音识别未正确初始化。' : '抱歉，您的浏览器不支持语音输入。')
-        return
+    const addSystemMessage = (content) => {
+      const message = {
+        role: 'system',
+        content: content,
+        mainContent: content,
+        source: 'system',
+        timestamp: new Date()
       }
-      if (isListening.value) {
-        speechRecognition.value.stop() // 停止录音
-        stopSpectrumAnimation() // 停止频谱动画
-      } else {
-        userInput.value = '' // 清空输入框准备接收语音
-        nextTick(() => { autoGrowTextarea() }) // 触发 textarea 自动调整高度
-        try {
-          speechRecognition.value.start() // 开始录音
-          startSpectrumAnimation() // 开始频谱动画
-        } catch (e) {
-          console.error("无法启动语音识别: ", e)
-          addSystemMessage("无法启动语音识别，请检查麦克风权限或配置。")
-          isListening.value = false
-        }
-      }
+      chatMessages.value.push(message)
+      nextTick(() => { scrollToBottom() })
+      startSpeaking(cleanTextForSpeech(content), true);
     }
 
-    // 2. 文本处理与核心流程编排 (sendMessage 是整个流程的入口)
-    const sendMessage = async () => {
+    // 初始化浏览器语音识别
+    const initBrowserSpeechRecognition = () => {
+      if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+        console.log('Browser does not support Web Speech API');
+        return null;
+      }
+
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      
+      recognition.lang = 'zh-CN';
+      recognition.continuous = false;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => {
+        console.log('Browser speech recognition started');
+        isListening.value = true;
+        startSpectrumAnimation();
+      };
+
+      recognition.onresult = (event) => {
+        const current = event.resultIndex;
+        const transcript = event.results[current][0].transcript;
+        interimTranscript.value = transcript;
+        
+        if (event.results[current].isFinal) {
+          userInput.value = transcript;
+          sendMessage();
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Browser speech recognition error:', event.error);
+        let errorMessage = '';
+        switch (event.error) {
+          case 'network':
+            errorMessage = '网络错误：无法连接到语音识别服务。请检查网络连接或尝试使用阿里云语音识别。';
+            break;
+          case 'no-speech':
+            errorMessage = '未检测到语音输入，请重试。';
+            break;
+          case 'audio-capture':
+            errorMessage = '无法访问麦克风，请检查麦克风权限。';
+            break;
+          case 'not-allowed':
+            errorMessage = '麦克风权限被拒绝，请在浏览器设置中允许访问麦克风。';
+            break;
+          default:
+            errorMessage = `语音识别错误: ${event.error}`;
+        }
+        addSystemMessage(errorMessage);
+        isListening.value = false;
+        stopSpectrumAnimation();
+      };
+
+      recognition.onend = () => {
+        console.log('Browser speech recognition ended');
+        isListening.value = false;
+        interimTranscript.value = '';
+        stopSpectrumAnimation();
+      };
+
+      return recognition;
+    };
+
+    // toggleListening 函数，支持两种语音识别方式
+    const toggleListening = () => {
+      tryUnlockAudio();
+
       if (isListening.value) {
-        speechRecognition.value.stop() // 确保语音识别停止
-        stopSpectrumAnimation() // 确保频谱动画停止
+        // 停止监听
+        if (useBrowserASR.value && browserRecognition.value) {
+          console.log('Stopping browser speech recognition');
+          browserRecognition.value.stop();
+        } else if (speechService.value) {
+          console.log('User clicked stop button.');
+          speechService.value.stop();
+        }
+        return;
+      }
+
+      if (isTyping.value || isSpeakingOnlyTTS.value) {
+        console.log('Cannot start listening while AI is busy.');
+        return;
+      }
+
+      console.log('Starting a new listening session...');
+      userInput.value = ''; 
+      interimTranscript.value = '';
+      nextTick(() => { autoGrowTextarea() });
+
+      // 根据配置选择使用哪种语音识别
+      if (useBrowserASR.value) {
+        if (!browserRecognition.value) {
+          browserRecognition.value = initBrowserSpeechRecognition();
+        }
+        if (browserRecognition.value) {
+          try {
+            browserRecognition.value.start();
+          } catch (e) {
+            console.error('Failed to start browser speech recognition:', e);
+            addSystemMessage('启动语音识别失败，请重试。');
+          }
+        } else {
+          addSystemMessage('您的浏览器不支持语音识别功能。');
+        }
+      } else {
+        if (!speechService.value) {
+          addSystemMessage('语音服务未初始化。');
+          return;
+        }
+        speechService.value.start();
+      }
+    };
+
+    // 切换语音识别模式
+    const toggleASRMode = () => {
+      useBrowserASR.value = !useBrowserASR.value;
+      const mode = useBrowserASR.value ? '浏览器内置语音识别' : '阿里云语音识别';
+      addSystemMessage(`已切换到${mode}模式。`);
+      
+      // 如果正在录音，先停止
+      if (isListening.value) {
+        if (useBrowserASR.value && speechService.value) {
+          speechService.value.stop();
+        } else if (!useBrowserASR.value && browserRecognition.value) {
+          browserRecognition.value.stop();
+        }
+      }
+    };
+
+    const sendMessage = async () => {
+      tryUnlockAudio();
+      if (isListening.value) {
+        if (useBrowserASR.value && browserRecognition.value) {
+          browserRecognition.value.stop();
+        } else if (speechService.value) {
+          speechService.value.stop();
+        }
       }
       const userMessage = userInput.value.trim()
-      if (!userMessage || isTyping.value) return // 如果消息为空或AI正在忙碌，则不处理
+      if (!userMessage || isTyping.value) return
 
-      // 在发送新消息前，取消任何正在进行的TTS播报
-      if (speechSynthesis.value && speechSynthesis.value.speaking) {
-        speechSynthesis.value.cancel()
-        isSpeakingOnlyTTS.value = false
+      if (isSpeakingOnlyTTS.value && speechService.value) {
+        if(speechService.value.audioPlayer) speechService.value.audioPlayer.pause();
+      }
+      
+      if (!deepSeekApiKey.value) {
+        addSystemMessage('⚠️ 错误：未配置 DeepSeek API Key。请检查 .env.local 文件并重启服务。');
+        return;
       }
 
       chatMessages.value.push({ role: 'user', content: userMessage, mainContent: userMessage })
-      userInput.value = '' // 清空输入框
-      nextTick(() => { autoGrowTextarea() }) // 重置文本框高度
-      isTyping.value = true // 设置AI正在处理状态，显示思考动画
-      scrollToBottom() // 滚动到底部
+      userInput.value = ''
+      nextTick(() => { autoGrowTextarea() })
+      isTyping.value = true
+      scrollToBottom()
 
-      const thinkingSteps = initializeThinkingSteps(userMessage) // 初始化思考过程追踪
+      const thinkingSteps = initializeThinkingSteps(userMessage)
 
       try {
-        // 2.1 大模型实体提取
         thinkingSteps.entityExtraction.attempted = true
         const extractedEntities = await extractEntitiesWithLLM(userMessage, thinkingSteps)
         thinkingSteps.entityExtraction.results = extractedEntities
@@ -328,17 +500,16 @@ export default {
         let kgResult = null
         let kgSource = 'none'
 
-        // 2.2 知识图谱查询（如果提取到实体且知识库已连接）
         if (extractedEntities.length > 0 && isConnected.value) {
           thinkingSteps.knowledgeGraphLookup.attempted = true
-          const entityToSearch = extractedEntities[0].name // 使用第一个提取到的实体进行查询
+          const entityToSearch = extractedEntities[0].name
           thinkingSteps.knowledgeGraphLookup.entityUsed = entityToSearch
-          kgResult = await queryKnowledgeGraphDirectly(entityToSearch, thinkingSteps) // 尝试直接查询
+          kgResult = await queryKnowledgeGraphDirectly(entityToSearch, thinkingSteps)
           if (!kgResult) {
-            kgResult = await queryKnowledgeGraphSemantically(userMessage, thinkingSteps) // 如果直接查询失败，尝试语义搜索
+            kgResult = await queryKnowledgeGraphSemantically(userMessage, thinkingSteps)
           }
           if (kgResult) {
-            kgSource = thinkingSteps.knowledgeGraphLookup.queryType // 记录查询类型
+            kgSource = thinkingSteps.knowledgeGraphLookup.queryType
             thinkingSteps.knowledgeGraphLookup.success = true
           }
         } else if (!isConnected.value) {
@@ -347,16 +518,14 @@ export default {
           thinkingSteps.knowledgeGraphLookup.resultSummary = '未提取到有效实体，跳过知识图谱查询。'
         }
 
-        // 格式化知识图谱结果为LLM上下文
         if (kgResult) {
           knowledgeContext = formatKnowledgeGraphResults(kgResult)
           thinkingSteps.knowledgeGraphLookup.resultSummary = `通过 ${kgSource} 方式查询 "${thinkingSteps.knowledgeGraphLookup.entityUsed}" 找到 ${kgResult.nodes?.length || 0} 个节点, ${kgResult.relationships?.length || 0} 条关系。`
           thinkingSteps.finalOutcome.source = 'knowledge_graph'
         } else {
-          thinkingSteps.finalOutcome.source = 'model' // 如果没有知识图谱结果，则基于通用模型
+          thinkingSteps.finalOutcome.source = 'model'
         }
 
-        // 2.3 LLM Prompt 构建与回答生成
         const finalPrompt = buildFinalPrompt(userMessage, knowledgeContext, thinkingSteps)
         thinkingSteps.answerGeneration.prompt = finalPrompt
 
@@ -368,28 +537,27 @@ export default {
           hasThinking: false,
           source: thinkingSteps.finalOutcome.source,
           thinkingSteps: thinkingSteps,
-          queryDetails: debug.value ? kgResult : null // 调试模式下显示查询详情
+          queryDetails: debug.value ? kgResult : null
         }
         chatMessages.value.push(assistantMessage)
         scrollToBottom()
 
-        await streamLLMResponse(finalPrompt, assistantMessage) // 调用LLM获取流式回答
+        await streamLLMResponse(finalPrompt, assistantMessage)
 
       } catch (error) {
         console.error('[sendMessage] 处理消息时发生顶层错误:', error)
         thinkingSteps.finalOutcome.source = 'error'
         thinkingSteps.finalOutcome.errorMessage = error.message
-        isTyping.value = false // 停止思考动画
-        isSpeakingOnlyTTS.value = false // 停止播报状态
-        showError(error, thinkingSteps) // 显示错误信息
+        isTyping.value = false
+        isSpeakingOnlyTTS.value = false
+        showError(error, thinkingSteps)
       } finally {
-        isTyping.value = false // 无论成功失败，都停止思考动画
-        isSpeakingOnlyTTS.value = false // 确保播报状态也重置
+        isTyping.value = false
+        isSpeakingOnlyTTS.value = false
         nextTick(() => scrollToBottom())
       }
     }
 
-    // 辅助方法：初始化思考步骤 (用于调试)
     const initializeThinkingSteps = (userInput) => {
       return {
         userInput: userInput,
@@ -424,7 +592,6 @@ export default {
       }
     }
 
-    // 3. 大模型实体提取
     const extractEntitiesWithLLM = async (userMessage, thinkingSteps) => {
       const prompt = `任务：请从以下用户问题中，精准地提取出最核心的名词性实体（例如：人名、地名、组织名、物品名称、概念术语等）。
 用户问题：
@@ -450,34 +617,47 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
 }
 或 (如果找不到)：
 {
-  "entities": []}`
+  "entities": []}`;
 
-      thinkingSteps.entityExtraction.prompt = prompt
+      thinkingSteps.entityExtraction.prompt = prompt;
       try {
-        const response = await axios.post(aiApiUrl.value, {
-          model: llmModel.value,
-          messages: [{ role: 'user', content: prompt }],
-          stream: false, // 实体提取请求通常不需要流式响应
-          options: { response_format: { type: "json_object" } }
-        })
-        thinkingSteps.entityExtraction.rawResponse = JSON.stringify(response.data)
-        const extractedData = extractJSONFromLLMResponse(response.data)
+        const response = await axios.post(
+          aiApiUrl.value,
+          {
+            model: llmModel.value,
+            messages: [{ role: 'user', content: prompt }],
+            stream: false,
+            response_format: { type: "json_object" }
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${deepSeekApiKey.value}`
+            }
+          }
+        );
+        
+        const llmContent = response.data.choices[0].message.content;
+        thinkingSteps.entityExtraction.rawResponse = llmContent;
+        
+        const extractedData = extractJSONFromLLMResponse(llmContent);
         if (extractedData && Array.isArray(extractedData.entities) && extractedData.entities.every(e => typeof e === 'string')) {
           const validEntities = extractedData.entities
             .map(name => name.trim())
-            .filter(name => name.length >= 2 && name.length < 50) // 过滤掉过短或过长的实体
-          return validEntities.map(name => ({ name: name, confidence: null }))
+            .filter(name => name.length >= 2 && name.length < 50);
+          return validEntities.map(name => ({ name: name, confidence: null }));
         } else {
-          thinkingSteps.entityExtraction.error = "LLM 返回格式不正确或未提取到实体"
-          return []
+          thinkingSteps.entityExtraction.error = "LLM 返回格式不正确或未提取到实体";
+          return [];
         }
       } catch (error) {
-        thinkingSteps.entityExtraction.error = `LLM API 调用失败: ${error.message}`
-        return []
+        console.error('实体提取失败:', error.response?.data || error.message);
+        const errorMessage = error.response?.data?.error?.message || error.message;
+        thinkingSteps.entityExtraction.error = `LLM API 调用失败: ${errorMessage}`;
+        return [];
       }
     }
 
-    // 辅助方法：从LLM响应中提取JSON (LLM有时会包裹在代码块中)
     const extractJSONFromLLMResponse = (response) => {
       if (!response) return null
       let jsonString = ''
@@ -494,8 +674,6 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
       try { const m = jsonString.match(/\{[\s\S]*\}/); if(m && m[0]) return JSON.parse(m[0]) } catch (e3) { /* ignore */ }
       return null
     }
-
-    // 4. 知识图谱查询
     const queryKnowledgeGraphDirectly = async (entityName, thinkingSteps) => {
       const encodedEntity = encodeURIComponent(entityName)
       const queryUrl = `${apiBaseUrl.value}/${encodedEntity}`
@@ -549,8 +727,6 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
         return null
       }
     }
-
-    // 辅助方法：格式化直接查询结果 (如果需要的话)
     const formatDirectQueryResult = (data, queriedEntityName) => {
       const result = { nodes: [], relationships: [], _source: 'direct_api' }
       const nodeMap = new Map()
@@ -595,15 +771,13 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
       }
       return result
     }
-
-    // 辅助方法：格式化知识图谱结果为 LLM 可用的上下文
     const formatKnowledgeGraphResults = (data) => {
       let context = ''
-      const nodesById = new Map() // 使用 Map 代替对象，以防键名冲突
+      const nodesById = new Map()
       if (data.nodes && data.nodes.length > 0) {
         context += '【相关实体信息】:\n'
         data.nodes.forEach(node => {
-          nodesById.set(node.id, node) // 确保用 .set()
+          nodesById.set(node.id, node)
           context += `- 实体: ${node.name || node.id}`
           if (node.labels && node.labels.length > 0) context += ` (类型: ${node.labels.join(', ')})`
           const props = Object.entries(node.properties || {})
@@ -635,8 +809,6 @@ JSON 输出格式示例（仅包含实体名称字符串数组）：
       }
       return context.trim()
     }
-
-    // 5. LLM Prompt 构建
     const buildFinalPrompt = (userMessage, knowledgeContext, thinkingSteps) => {
       const kgAttempted = thinkingSteps.knowledgeGraphLookup.attempted
       const kgSuccess = thinkingSteps.knowledgeGraphLookup.success
@@ -683,129 +855,128 @@ ${baseInstructions}
       }
     }
 
-    // 6. LLM 回答（流式处理）
     const streamLLMResponse = async (finalPrompt, assistantMessage) => {
       try {
-        const response = await axios.post(aiApiUrl.value, {
-          model: llmModel.value,
-          messages: [{ role: 'user', content: finalPrompt }],
-          stream: true, // 保持此设置，以匹配LLM服务器的预期行为
-        }, { responseType: 'text' }) // 明确声明期望文本响应
+        const response = await axios.post(
+          aiApiUrl.value,
+          {
+            model: llmModel.value,
+            messages: [{ role: 'user', content: finalPrompt }],
+            stream: true,
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${deepSeekApiKey.value}`
+            },
+            responseType: 'text' // Important for streaming
+          }
+        );
 
-        let streamedContent = ''
-        let mainContentAccumulator = ''
-        let thinkingContentAccumulator = ''
-        let inThinkingBlock = false
+        let streamedContent = '';
+        let mainContentAccumulator = '';
+        let thinkingContentAccumulator = '';
+        let inThinkingBlock = false;
 
-        // 将完整的响应文本按行分割进行处理
-        const lines = response.data.split('\n')
+        const lines = response.data.split('\n');
 
         for (const line of lines) {
-          if (!line.trim()) continue // 跳过空行
+          if (!line.trim() || !line.startsWith('data: ')) {
+            continue;
+          }
+
+          if (line === 'data: [DONE]') {
+            break;
+          }
+          
           try {
-            // Ollama 的 stream 响应可能会在每行前加 'data: '
-            const data = JSON.parse(line.replace('data: ', ''))
-            let chunk = ''
-            if (data.message?.content) chunk = data.message.content
-            else if (data.response) chunk = data.response // 兼容其他LLM的响应格式
+            const data = JSON.parse(line.substring(6));
+            const chunk = data.choices[0]?.delta?.content || '';
 
             if (chunk) {
-              streamedContent += chunk
-              assistantMessage.content = streamedContent // 完整的原始内容
+              streamedContent += chunk;
+              assistantMessage.content = streamedContent;
 
-              // 分离主内容和思考过程 (旧逻辑保留)
-              let currentChunkPos = 0
+              let currentChunkPos = 0;
               while (currentChunkPos < chunk.length) {
                 if (inThinkingBlock) {
-                  const endTagIndex = chunk.indexOf('</think>', currentChunkPos)
+                  const endTagIndex = chunk.indexOf('</think>', currentChunkPos);
                   if (endTagIndex !== -1) {
-                    thinkingContentAccumulator += chunk.substring(currentChunkPos, endTagIndex)
-                    inThinkingBlock = false
-                    currentChunkPos = endTagIndex + '</think>'.length
+                    thinkingContentAccumulator += chunk.substring(currentChunkPos, endTagIndex);
+                    inThinkingBlock = false;
+                    currentChunkPos = endTagIndex + '</think>'.length;
                   } else {
-                    thinkingContentAccumulator += chunk.substring(currentChunkPos)
-                    currentChunkPos = chunk.length
+                    thinkingContentAccumulator += chunk.substring(currentChunkPos);
+                    currentChunkPos = chunk.length;
                   }
                 } else {
-                  const startTagIndex = chunk.indexOf('<think>', currentChunkPos)
+                  const startTagIndex = chunk.indexOf('<think>', currentChunkPos);
                   if (startTagIndex !== -1) {
-                    mainContentAccumulator += chunk.substring(currentChunkPos, startTagIndex)
-                    inThinkingBlock = true
-                    currentChunkPos = startTagIndex + '<think>'.length
+                    mainContentAccumulator += chunk.substring(currentChunkPos, startTagIndex);
+                    inThinkingBlock = true;
+                    currentChunkPos = startTagIndex + '<think>'.length;
                   } else {
-                    mainContentAccumulator += chunk.substring(currentChunkPos)
-                    currentChunkPos = chunk.length
+                    mainContentAccumulator += chunk.substring(currentChunkPos);
+                    currentChunkPos = chunk.length;
                   }
                 }
               }
-              assistantMessage.mainContent = mainContentAccumulator
-              assistantMessage.thinkingContent = thinkingContentAccumulator
-              assistantMessage.hasThinking = thinkingContentAccumulator.trim().length > 0
+              assistantMessage.mainContent = mainContentAccumulator;
+              assistantMessage.thinkingContent = thinkingContentAccumulator;
+              assistantMessage.hasThinking = thinkingContentAccumulator.trim().length > 0;
 
-              // nextTick() 在这里不再强制更新，而是让Vue的响应式系统自行处理
-              // 我们只需要确保滚动到底部
-              scrollToBottom()
+              scrollToBottom();
             }
-            if (data.done) break //  LLM响应结束标志
+            if (data.choices[0]?.finish_reason) {
+              break;
+            }
           } catch (e) {
-            // 如果某一行不是有效的JSON（例如，可能是LLM在不规范格式下输出的文本），
-            // 则将其作为普通文本追加到相应的内容累加器中
-            console.warn("非JSON行或解析错误:", line, e)
-            if (!inThinkingBlock) mainContentAccumulator += line + '\n'
-            else thinkingContentAccumulator += line + '\n'
-            assistantMessage.mainContent = mainContentAccumulator
-            assistantMessage.thinkingContent = thinkingContentAccumulator
-            scrollToBottom()
+            console.warn("非JSON行或解析错误:", line, e);
           }
         }
 
-        // 流式响应结束后，对所有内容进行最终解析，确保思考过程和主内容彻底分离
-        const finalParsed = parseThinkTags(streamedContent)
-        assistantMessage.content = streamedContent.trim()
-        assistantMessage.mainContent = finalParsed.mainContent
-        assistantMessage.thinkingContent = finalParsed.thinkingContent
-        assistantMessage.hasThinking = finalParsed.hasThinking
+        const finalParsed = parseThinkTags(streamedContent);
+        assistantMessage.content = streamedContent.trim();
+        assistantMessage.mainContent = finalParsed.mainContent;
+        assistantMessage.thinkingContent = finalParsed.thinkingContent;
+        assistantMessage.hasThinking = finalParsed.hasThinking;
         if (assistantMessage.thinkingSteps) {
-          assistantMessage.thinkingSteps.answerGeneration.llmResponse = streamedContent.trim()
-          assistantMessage.thinkingSteps.finalOutcome.source = assistantMessage.source
+          assistantMessage.thinkingSteps.answerGeneration.llmResponse = streamedContent.trim();
+          assistantMessage.thinkingSteps.finalOutcome.source = assistantMessage.source;
         }
 
-        scrollToBottom()
+        scrollToBottom();
 
-        // 7. TTS (Text-to-Speech) 播报
-        // 确保仅在最终内容完整且TTS启用时播报一次
         if (isTTSEnabled.value && assistantMessage.mainContent && assistantMessage.role === 'assistant') {
-          const textToSpeak = cleanTextForSpeech(assistantMessage.mainContent)
-          startSpeaking(textToSpeak) // 调用统一的播报方法
+          startSpeaking(cleanTextForSpeech(assistantMessage.mainContent), false);
         }
 
       } catch (error) {
-        // 处理LLM API调用失败或解析失败的错误
-        const finalErrorMessage = `抱歉，我在尝试回答时遇到了一个内部错误。(${error.message})`
+        console.error('LLM 流式响应失败:', error.response?.data || error.message);
+        const errorMessage = error.response?.data?.error?.message || error.message;
+        const finalErrorMessage = `抱歉，我在尝试回答时遇到了一个内部错误。(${errorMessage})`;
+        
         if (assistantMessage) {
-          assistantMessage.content = finalErrorMessage
-          assistantMessage.mainContent = `抱歉，我在尝试回答时遇到了一个内部错误。` // TTS播报时更简洁
-          assistantMessage.source = 'error'
-          // 调试信息
+          assistantMessage.content = finalErrorMessage;
+          assistantMessage.mainContent = `抱歉，我在尝试回答时遇到了一个内部错误。`;
+          assistantMessage.source = 'error';
           if (assistantMessage.thinkingSteps) {
-            assistantMessage.thinkingSteps.answerGeneration.error = `LLM API 调用失败: ${error.message}`
-            assistantMessage.thinkingSteps.finalOutcome.source = 'error'
-            assistantMessage.thinkingSteps.finalOutcome.errorMessage = error.message
+            assistantMessage.thinkingSteps.answerGeneration.error = `LLM API 调用失败: ${errorMessage}`;
+            assistantMessage.thinkingSteps.finalOutcome.source = 'error';
+            assistantMessage.thinkingSteps.finalOutcome.errorMessage = errorMessage;
           }
         } else {
-          // 如果还没有 assistantMessage 对象（极少发生），直接添加系统错误消息
-          chatMessages.value.push({ role: 'assistant', content: finalErrorMessage, mainContent: `抱歉，我在尝试回答时遇到了一个内部错误。`, source: 'error', hasThinking: false })
+          chatMessages.value.push({ role: 'assistant', content: finalErrorMessage, mainContent: `抱歉，我在尝试回答时遇到了一个内部错误。`, source: 'error', hasThinking: false });
         }
         if (isTTSEnabled.value) {
-          startSpeaking(cleanTextForSpeech(finalErrorMessage)) // 播报错误消息
+          startSpeaking(cleanTextForSpeech(finalErrorMessage), false);
         }
-        scrollToBottom()
+        scrollToBottom();
       } finally {
-        isTyping.value = false // 无论成功或失败，都停止AI思考的动画状态
+        isTyping.value = false;
       }
-    }
+    };
 
-    // 辅助方法：解析 LLM 响应中的 <think> 标签，分离思考过程和主内容
     const parseThinkTags = (text) => {
       if (!text) return { mainContent: '', thinkingContent: '', hasThinking: false }
       let mainContent = ''
@@ -815,142 +986,49 @@ ${baseInstructions}
       let match
       while ((match = thinkRegex.exec(text)) !== null) {
         mainContent += text.substring(lastIndex, match.index)
-        thinkingContent += match[1].trim() + '\n\n' // 提取思考内容
+        thinkingContent += match[1].trim() + '\n\n'
         lastIndex = thinkRegex.lastIndex
       }
-      mainContent += text.substring(lastIndex) // 获取 <think> 标签之后的所有内容
+      mainContent += text.substring(lastIndex)
       mainContent = mainContent.trim()
       thinkingContent = thinkingContent.trim()
       return { mainContent: mainContent, thinkingContent: thinkingContent, hasThinking: thinkingContent.length > 0 }
     }
-
-    // 7. TTS (Text-to-Speech) 核心播报逻辑
-    // 统一的语音播报方法，确保只播报一次并管理状态
-    const startSpeaking = (text) => {
-      // 检查 TTS 是否启用、speechSynthesis 实例是否存在、文本是否为空
-      if (!isTTSEnabled.value || !speechSynthesis.value || !text || text.trim().length === 0) {
-        console.log("TTS skipped: disabled, no synthesis, or empty text.")
-        return
-      }
-
-      // 立即取消任何正在进行的播报，防止重叠和重复播报
-      if (speechSynthesis.value.speaking) {
-        speechSynthesis.value.cancel()
-        console.log("TTS cancelled previous speech.")
-      }
-
-      currentUtterance.value = new SpeechSynthesisUtterance(text)
-      // 尝试使用之前加载的选中语音
-      if (selectedVoiceURI.value) {
-        const voice = voices.value.find(v => v.voiceURI === selectedVoiceURI.value)
-        if (voice) currentUtterance.value.voice = voice
-      }
-      // 如果没有指定语音或指定语音不支持中文，强制设置为中文
-      if (!currentUtterance.value.voice || !currentUtterance.value.voice.lang.startsWith('zh')) {
-        currentUtterance.value.lang = 'zh-CN'
-      }
-
-      // 设置播报结束和出错的回调，以正确管理状态
-      currentUtterance.value.onend = () => {
-        currentUtterance.value = null
-        isSpeakingOnlyTTS.value = false // 播报结束，重置状态
-        console.log('TTS finished speaking.')
-      }
-      currentUtterance.value.onerror = (event) => {
-        console.error('TTS Error:', event.error)
-        currentUtterance.value = null
-        isSpeakingOnlyTTS.value = false // 播报出错，重置状态
-      }
-
-      // 启动播报前设置状态，表示AI正在播报
-      isSpeakingOnlyTTS.value = true
-      console.log('TTS starting speech:', text)
-      speechSynthesis.value.speak(currentUtterance.value)
-    }
-
-    // 辅助方法：加载可用语音 (通常在 mounted 中调用一次)
-    const loadVoices = () => {
-      if (!speechSynthesis.value) return
-      voices.value = speechSynthesis.value.getVoices();
-      // 优先选择本地服务的中文语音
-      const chineseVoice = voices.value.find(voice => voice.lang.startsWith('zh-CN') && voice.localService);
-      if (chineseVoice) {
-        selectedVoiceURI.value = chineseVoice.voiceURI;
-      } else {
-         // 如果没有本地服务，选择任何可用的中文语音
-         const anyChineseVoice = voices.value.find(voice => voice.lang.startsWith('zh-CN'));
-         if(anyChineseVoice) selectedVoiceURI.value = anyChineseVoice.voiceURI;
-      }
-    }
-
-    // 辅助方法：清理文本以便TTS更好地播报 (移除Markdown、HTML等)
     const cleanTextForSpeech = (markdownText) => {
       if (!markdownText) return ''
       let text = markdownText
-      // 移除代码块 (如 ```js ... ```)
       text = text.replace(/```[\s\S]*?```/g, ' (代码部分) ');
-      // 移除行内代码 (如 `console.log`)
       text = text.replace(/`([^`]+)`/g, '$1');
-      // 移除图片 markdown (如 ![alt](url))
       text = text.replace(/!\[(.*?)\]\(.*?\)/g, '(图片: $1) ');
-      // 移除链接 markdown (如 [text](url))
       text = text.replace(/\[(.*?)\]\(.*?\)/g, '$1');
-      // 移除Markdown标题 (如 # Title)
       text = text.replace(/^#{1,6}\s+/gm, '');
-      // 移除加粗/斜体标记 (**strong**, *em*)
       text = text.replace(/(\*\*|__)(.*?)\1/g, '$2');
       text = text.replace(/(\*|_)(.*?)\1/g, '$2');
-      // 移除水平线 (---, ***, ___)
       text = text.replace(/^(-{3,}|\*{3,}|_{3,})$/gm, '');
-      // 移除列表标记 (* item, - item, 1. item)
       text = text.replace(/^\s*[*+-]\s+/gm, ' ');
       text = text.replace(/^\s*\d+\.\s+/gm, ' ');
-      // 移除所有HTML标签
       text = text.replace(/<\/?[^>]+(>|$)/g, "");
-      // 替换所有换行符和多个连续空格为单个空格，并去除首尾空格
       text = text.replace(/(\r\n|\n|\r)/gm, " ").replace(/\s+/g, ' ').trim();
       return text
     }
-
-    // --- UI/辅助功能方法 ---
-
-    // 系统消息
-    const addSystemMessage = (content) => {
-      const message = {
-        role: 'system',
-        content: content,
-        mainContent: content,
-        source: 'system',
-        timestamp: new Date()
-      }
-      chatMessages.value.push(message)
-      nextTick(() => { scrollToBottom() })
-      if (isTTSEnabled.value && speechSynthesis.value && content) {
-        startSpeaking(cleanTextForSpeech(content))
-      }
-    }
-
-    // 显示错误
     const showError = (error, thinkingSteps) => {
-      const errorMessage = error.response?.data?.error || error.response?.data?.message || error.message
+      const errorMessage = error.response?.data?.error?.message || error.response?.data?.message || error.message
       const errorDetails = debug.value ? `\n\n调试信息：${JSON.stringify(error.response?.data || error, null, 2)}` : ''
       const fullUserMessage = `抱歉，处理您的请求时遇到了问题：${errorMessage}${errorDetails}`
 
       const errorMsgObject = {
         role: 'assistant',
         content: fullUserMessage,
-        mainContent: `抱歉，我在尝试回答时遇到了一个内部错误。`, // TTS播报时更简洁
+        mainContent: `抱歉，我在尝试回答时遇到了一个内部错误。`,
         source: 'error',
         thinkingSteps: thinkingSteps
       }
       chatMessages.value.push(errorMsgObject)
       nextTick(() => { scrollToBottom() })
-      if (isTTSEnabled.value && speechSynthesis.value) {
-        startSpeaking(cleanTextForSpeech(errorMsgObject.mainContent))
+      if (isTTSEnabled.value) {
+        startSpeaking(cleanTextForSpeech(errorMsgObject.mainContent), false)
       }
     }
-
-    // 测试数据库连接
     const testDatabaseConnection = async () => {
       try {
         const response = await axios.get(apiBaseUrl.value, { timeout: 5000 })
@@ -965,35 +1043,24 @@ ${baseInstructions}
         addSystemMessage('⚠️ 无法连接到知识库，部分功能可能受限。')
       }
     }
-
-    // 格式化消息（Markdown渲染）
     const formatMessage = (content) => {
       if (!content) return ''
-      // marked.parse() 用于将 Markdown 转换为 HTML
       const html = marked.parse(content)
-      // DOMPurify.sanitize() 用于清理 HTML，防止 XSS 攻击
       return DOMPurify.sanitize(html)
     }
-
-    // 文本输入框自动调整高度
     const autoGrowTextarea = () => {
       if (userInputArea.value) {
         userInputArea.value.style.height = 'auto'
         userInputArea.value.style.height = userInputArea.value.scrollHeight + 'px'
       }
     }
-
-    // 键盘事件处理 (Enter 发送，Shift+Enter 换行)
     const handleKeydown = (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault() // 阻止默认换行
+        event.preventDefault()
         sendMessage()
       }
-      // 触发自动调整高度，以防 Shift+Enter 换行时需要调整
       nextTick(() => { autoGrowTextarea() })
     }
-
-    // 滚动到对话列表底部
     const scrollToBottom = () => {
       nextTick(() => {
         if (conversationList.value) {
@@ -1001,50 +1068,36 @@ ${baseInstructions}
         }
       })
     }
-
-    // 对话记录面板显示/隐藏
-    const toggleTTS = () => { // 确保此函数在 setup 返回
+    const toggleTTS = () => {
       isTTSEnabled.value = !isTTSEnabled.value
-      if (!isTTSEnabled.value && speechSynthesis.value && speechSynthesis.value.speaking) {
-        speechSynthesis.value.cancel()
-        isSpeakingOnlyTTS.value = false
+      if (!isTTSEnabled.value && speechService.value) {
+        if(speechService.value.audioPlayer) speechService.value.audioPlayer.pause();
       }
     }
-
-    // 对话记录面板显示/隐藏
     const toggleHistory = () => {
       showHistory.value = !showHistory.value
     }
-
-    // 关闭对话记录面板
     const closeHistory = () => {
       showHistory.value = false
     }
-
-    // 快捷输入区显示/隐藏
     const toggleQuickInput = () => {
+      tryUnlockAudio();
       showQuickInput.value = !showQuickInput.value
       if (showQuickInput.value) {
         nextTick(() => {
-          if (userInputArea.value) userInputArea.value.focus() // 显示时自动聚焦输入框
+          if (userInputArea.value) userInputArea.value.focus()
         })
       }
     }
-
-    // 调试模式开关
     const toggleDebug = () => {
       debug.value = !debug.value
     }
-
-    // 清除对话记录
     const clearConversations = () => {
       if (confirm('确定要清除所有对话记录吗？此操作不可撤销。')) {
         chatMessages.value = []
         addSystemMessage('所有对话记录已清除。')
       }
     }
-
-    // 图标和名称辅助方法 (用于显示角色和来源信息)
     const getRoleIcon = (role) => {
       switch (role) {
         case 'user': return 'fas fa-user'
@@ -1053,7 +1106,6 @@ ${baseInstructions}
         default: return 'fas fa-comment'
       }
     }
-
     const getRoleName = (role) => {
       switch (role) {
         case 'user': return '您'
@@ -1062,17 +1114,15 @@ ${baseInstructions}
         default: return '未知'
       }
     }
-
     const getSourceIcon = (source) => {
       switch (source) {
         case 'knowledge_graph': return 'fas fa-database'
         case 'model': return 'fas fa-brain'
         case 'error': return 'fas fa-exclamation-triangle'
-        case 'system': return 'fas fa-info-circle' // 系统消息也有来源图标
+        case 'system': return 'fas fa-info-circle'
         default: return 'fas fa-question-circle'
       }
     }
-
     const getSourceName = (source) => {
       switch (source) {
         case 'knowledge_graph': return '知识库'
@@ -1082,205 +1132,132 @@ ${baseInstructions}
         default: return '未知'
       }
     }
-
-    // **频谱动画实现**
-    // 创建频谱条DOM元素
     const createSpectrumBars = () => {
       if (!spectrumVisualizer.value) return
-
-      // 防止重复创建
       if (spectrumBars.value.length > 0) return;
-
-      const numBars = 30; // 频谱条数量
+      const numBars = 30;
       for (let i = 0; i < numBars; i++) {
         const bar = document.createElement('div')
-        bar.className = 'spectrum-bar-new' // 使用新的类名
-        bar.style.height = '5px' // 初始高度
-        // 加入动画延迟，使其看起来更自然
+        bar.className = 'spectrum-bar-new'
+        bar.style.height = '5px'
         bar.style.animationDelay = `${i * 0.03}s`;
         spectrumVisualizer.value.appendChild(bar)
         spectrumBars.value.push(bar)
       }
     }
-
-    // 启动频谱动画
     const startSpectrumAnimation = () => {
-      // 停止任何之前的动画帧请求
       if (animationFrameId.value) {
         cancelAnimationFrame(animationFrameId.value)
       }
       const animate = () => {
-        if (!isListening.value) { // 只有在正在监听时才进行动画
+        if (!isListening.value) {
             stopSpectrumAnimation();
             return;
         }
         spectrumBars.value.forEach(bar => {
-          // 根据实际音频数据调整高度会更好，这里用随机值模拟
-          const height = Math.random() * 60 + 5 // 5px - 65px
+          const height = Math.random() * 60 + 5
           bar.style.height = `${height}px`
         })
         animationFrameId.value = requestAnimationFrame(animate)
       }
-      animationFrameId.value = requestAnimationFrame(animate) // 首次启动动画
+      animationFrameId.value = requestAnimationFrame(animate)
     }
-
-    // 停止频谱动画并重置高度
     const stopSpectrumAnimation = () => {
       if (animationFrameId.value) {
         cancelAnimationFrame(animationFrameId.value)
         animationFrameId.value = null
       }
       spectrumBars.value.forEach(bar => {
-        bar.style.height = '5px' // 重置为初始高度
+        bar.style.height = '5px'
       })
     }
-
-    // 初始化应用，在 mounted 时调用一次
+    
     const initializeApp = () => {
-      // TTS 初始化
-      if ('speechSynthesis' in window) {
-        speechSynthesis.value = window.speechSynthesis
-        loadVoices() // 加载可用语音
-        if (speechSynthesis.value.onvoiceschanged !== undefined) {
-          speechSynthesis.value.onvoiceschanged = loadVoices
-        }
-      } else {
-        console.warn('浏览器不支持 SpeechSynthesis API。TTS 功能将不可用。')
-        isTTSEnabled.value = false
+      // Check for API Key on load
+      if (!deepSeekApiKey.value) {
+        console.error("VUE_APP_DEEPSEEK_API_KEY is not set in your .env.local file.");
+        addSystemMessage('⚠️ 错误：未配置大模型 API Key。请在 .env.local 文件中设置 VUE_APP_DEEPSEEK_API_KEY 并重启服务。');
       }
 
-      // STT 初始化
-      if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
-        const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition
-        speechRecognition.value = new SpeechRecognitionAPI()
-        speechRecognition.value.continuous = false
-        speechRecognition.value.interimResults = true
-        speechRecognition.value.lang = 'zh-CN'
-
-        speechRecognition.value.onstart = () => {
-          isListening.value = true
-          interimTranscript.value = ''
-          if (speechSynthesis.value && speechSynthesis.value.speaking) {
-            speechSynthesis.value.cancel()
-            isSpeakingOnlyTTS.value = false
-          }
+      // 检测浏览器语音识别支持
+      const hasBrowserSpeechSupport = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+      
+      // 先尝试初始化阿里云语音服务
+      speechService.value = new AlibabaSpeechService(alibabaSpeechConfig);
+      
+      // 设置阿里云语音服务的回调
+      speechService.value.onRecognitionStarted = () => { 
+        isListening.value = true; 
+        startSpectrumAnimation(); 
+      };
+      speechService.value.onRecognitionResultChange = (text) => { 
+        interimTranscript.value = text; 
+      };
+      speechService.value.onRecognitionCompleted = (text) => {
+        if (text && text.trim()) {
+          userInput.value = text.trim();
+          sendMessage();
         }
-
-        speechRecognition.value.onresult = (event) => {
-          let finalTranscript = ''
-          interimTranscript.value = ''
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            const transcript = event.results[i][0].transcript
-            if (event.results[i].isFinal) {
-              finalTranscript += transcript
-            } else {
-              interimTranscript.value += transcript
-            }
-          }
-          if (finalTranscript.trim() && isListening.value) {
-            userInput.value = finalTranscript.trim()
-          }
+      };
+      speechService.value.onRecordingStop = () => { 
+        isListening.value = false; 
+        interimTranscript.value = ''; 
+        stopSpectrumAnimation(); 
+      };
+      speechService.value.onTTSSpeaking = (speaking) => { 
+        isSpeakingOnlyTTS.value = speaking; 
+      };
+      speechService.value.onError = (error) => { 
+        addSystemMessage(`语音服务遇到问题: ${error}`); 
+        isListening.value = false; 
+        isSpeakingOnlyTTS.value = false; 
+        stopSpectrumAnimation(); 
+        
+        // 如果阿里云服务失败，提示用户可以切换到浏览器语音识别
+        if (!useBrowserASR.value && hasBrowserSpeechSupport) {
+          addSystemMessage('您可以尝试切换到浏览器内置语音识别（点击云朵按钮切换）。');
         }
+      };
 
-        speechRecognition.value.onerror = (event) => {
-          console.error('语音识别错误:', event.error)
-          addSystemMessage(`语音识别遇到问题: ${event.error}`)
-          isListening.value = false
-          interimTranscript.value = ''
-          isTyping.value = false
-          isSpeakingOnlyTTS.value = false
-          stopSpectrumAnimation(); // 错误时停止动画
-        }
-
-        speechRecognition.value.onend = () => {
-          isListening.value = false
-          stopSpectrumAnimation(); // 结束时停止动画
-          nextTick(() => { interimTranscript.value = '' })
-          if (userInput.value.trim() && autoSendOnSpeechEnd.value) {
-            sendMessage()
-          } else if (userInput.value.trim()) {
-            if (userInputArea.value) userInputArea.value.focus()
-          }
-        }
+      // 欢迎消息
+      let welcomeMessage = '您好！我是文物领域智能语音助手，请问有什么可以帮您的？';
+      if (!hasBrowserSpeechSupport) {
+        welcomeMessage += '\n提示：您的浏览器不支持内置语音识别，建议使用Chrome或Edge浏览器。';
       } else {
-        speechRecognitionSupported.value = false
-        addSystemMessage('抱歉，您的浏览器不支持语音输入功能。')
+        welcomeMessage += '点击麦克风图标可以开始语音输入。';
       }
-
-      // 初始化消息和测试连接
-      addSystemMessage('您好！我是文物领域智能语音助手，请问有什么可以帮您的？点击麦克风图标可以开始语音输入。')
-      testDatabaseConnection()
+      addSystemMessage(welcomeMessage);
+      
+      testDatabaseConnection();
     }
 
-    // 生命周期钩子
     onMounted(() => {
-      initializeApp() // 初始化 TTS, STT, 欢迎消息, 数据库连接
-      createSpectrumBars() // 创建频谱条 DOM 元素
-    })
+      initializeApp()
+      createSpectrumBars()
+    });
 
     onUnmounted(() => {
-      // 组件卸载时清理所有活动状态
-      if (animationFrameId.value) {
-        cancelAnimationFrame(animationFrameId.value)
-      }
-      if (speechRecognition.value && isListening.value) {
-        speechRecognition.value.stop()
-      }
-      if (speechSynthesis.value && speechSynthesis.value.speaking) {
-        speechSynthesis.value.cancel()
-      }
-    })
+      if (animationFrameId.value) { cancelAnimationFrame(animationFrameId.value) }
+      if (speechService.value && speechService.value.isRecording) { speechService.value.stop(); }
+      if (browserRecognition.value) { browserRecognition.value.abort(); }
+    });
 
-    // 返回给模板的数据和方法
     return {
-      // 数据
-      chatMessages,
-      userInput,
-      interimTranscript,
-
-      // 状态
-      isTyping,
-      isListening,
-      isTTSEnabled,
-      isSpeakingOnlyTTS,
-      isConnected,
-      showHistory,
-      showQuickInput,
-      debug,
-      speechRecognitionSupported,
-
-      // 计算属性
-      getVoiceOverlayIcon,
-      getStatusText, // 新增的计算属性
-
-      // Refs
-      spectrumVisualizer,
-      conversationList,
-      userInputArea,
-
-      // 方法 (所有在模板中使用的都必须返回)
-      toggleListening,
-      sendMessage,
-      toggleTTS, // 确保返回
-      toggleHistory,
-      closeHistory,
-      toggleQuickInput,
-      toggleDebug,
-      clearConversations,
-      formatMessage,
-      autoGrowTextarea,
-      handleKeydown,
-      getRoleIcon,
-      getRoleName,
-      getSourceIcon,
-      getSourceName,
-    }
+      chatMessages, userInput, interimTranscript, isTyping, isListening, isTTSEnabled,
+      isSpeakingOnlyTTS, isConnected, showHistory, showQuickInput, debug, useBrowserASR,
+      speechRecognitionSupported: ref(true),
+      getVoiceOverlayIcon, getStatusText, spectrumVisualizer, conversationList, userInputArea,
+      toggleListening, sendMessage, toggleTTS, toggleHistory, closeHistory, toggleQuickInput,
+      toggleDebug, toggleASRMode, clearConversations, formatMessage, autoGrowTextarea, handleKeydown,
+      getRoleIcon, getRoleName, getSourceIcon, getSourceName,
+    };
   }
 }
 </script>
 
 <style scoped>
-/* 定义 CSS 变量以便于主题管理，与 App.vue 保持一致 */
+/* 样式部分保持不变，所以省略以节省空间 */
+/* The <style> part remains unchanged. */
 :root {
   --primary-blue: #2196f3;
   --primary-blue-dark: #1976d2;
@@ -1401,6 +1378,7 @@ ${baseInstructions}
 }
 
 /* 顶部栏 */
+/* 顶部栏 */
 .top-bar-ai {
   position: relative; /* 确保在背景之上 */
   z-index: 10;
@@ -1408,10 +1386,7 @@ ${baseInstructions}
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(255, 255, 255, 0.95); /* 浅色半透明背景 */
-  backdrop-filter: blur(20px); /* 磨砂玻璃效果 */
-  box-shadow: 0 2px 20px var(--shadow-light); /* 蓝色系阴影 */
-  border-bottom: 1px solid rgba(33, 150, 243, 0.1);
+  background: transparent; /* 完全透明背景，融合到动态背景中 */
   flex-shrink: 0;
 }
 
@@ -1459,6 +1434,11 @@ ${baseInstructions}
   background: rgba(var(--accent-green), 0.2); /* 绿色 */
   color: var(--accent-green);
   border-color: rgba(var(--accent-green), 0.5);
+}
+.action-btn-ai.active-browser {
+  background: rgba(255, 152, 0, 0.2); /* 橙色 */
+  color: #ff9800;
+  border-color: rgba(255, 152, 0, 0.5);
 }
 .action-btn-ai.active-tts {
   background: rgba(var(--primary-blue), 0.2); /* 蓝色 */
@@ -1710,20 +1690,23 @@ ${baseInstructions}
 /* 对话记录面板 */
 .conversation-panel-new {
   position: fixed;
-  top: 0;
+  top: 80px; /* 从顶部栏下方开始 */
   right: -400px; /* 默认隐藏在右侧 */
   width: 400px;
-  height: 100vh;
-  background: rgba(255, 255, 255, 0.98); /* 接近白色，更明亮 */
+  height: calc(100vh - 80px); /* 高度适应新的起始位置 */
+  background: rgba(255, 255, 255, 0.98);
   backdrop-filter: blur(20px);
   border-left: 1px solid rgba(var(--primary-blue), 0.1);
-  transition: right 0.3s ease; /* 平滑过渡 */
-  z-index: 15; /* 高于其他内容 */
+  border-top: 1px solid rgba(var(--primary-blue), 0.1); /* 添加顶部边框 */
+  border-top-left-radius: 12px; /* 左上角圆角 */
+  transition: right 0.3s ease;
+  z-index: 15;
   display: flex;
   flex-direction: column;
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
-  color: var(--text-dark); /* 面板内文本颜色 */
+  color: var(--text-dark);
 }
+
 
 .conversation-panel-new.open {
   right: 0; /* 显示时移入视图 */
