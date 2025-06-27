@@ -5,6 +5,7 @@ const cors = require('cors');
 const RPCClient = require('@alicloud/pop-core').RPCClient;
 require('dotenv').config();
 
+
 const app = express();
 const port = 3000;
 
@@ -16,6 +17,9 @@ app.use(express.urlencoded({ extended: true }));
 // Your API router
 const dataRouter = require('./api/data');
 app.use('/api/data', dataRouter);
+
+const hardwareRoutes = require('./routes/hardware');
+app.use('/api/hardware', hardwareRoutes);
 
 // --- START: The Final Token Generation Endpoint ---
 function createNlsClient() {

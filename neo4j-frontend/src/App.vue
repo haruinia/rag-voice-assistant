@@ -42,6 +42,18 @@
             <span class="nav-item-text">语音助手</span>
             <div class="nav-item-indicator"></div>
           </router-link>
+
+
+            <router-link to="/hardware" class="nav-item" active-class="active">
+            <div class="nav-item-icon">
+              <i class="fas fa-microchip"></i>
+            </div>
+            <span class="nav-item-text">硬件设备管理</span>
+            <div class="nav-item-indicator"></div>
+          </router-link>
+
+
+
         </div>
         
         <!-- 右侧操作区 -->

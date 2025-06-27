@@ -20,7 +20,13 @@ const routes = [
     name: 'ai-chat-tts',
     // Use the new component with TTS functionality
     component: AIAssistantWithTTS
-  }
+  },
+  // 在 src/router/index.js 或相应的路由文件中
+{
+  path: '/hardware',
+  name: 'HardwareManager', 
+  component: () => import('@/components/HardwareDeviceManager.vue')
+}
 ]
 
 const router = createRouter({
