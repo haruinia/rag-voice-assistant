@@ -4,10 +4,10 @@ const router = express.Router();
 
 // --- Neo4j 连接 ---
 // 保持你原来的连接方式
-const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('neo4j', 'neo4j'));
+const driver = neo4j.driver('bolt://192.168.1.112:7687', neo4j.auth.basic('neo4j', 'neo4j'));
 // !! 警告：在模块级别创建并在所有请求中重用单个 session 不是推荐的最佳实践，
 // !! 在高并发场景下可能导致问题。更健壮的方式是为每个请求获取 session。
-// !! 但按你的要求，我们暂时保留此方式。
+// !! 但按你的要求，我们暂时保留此方式。http://192.168.1.112/
 const session = driver.session();
 
 // --- 优雅关闭 Driver (建议添加) ---
@@ -518,107 +518,125 @@ router.post('/query', async (req, res) => {
 });
 
 // 修改语义搜索接口
-// router.post('/semantic-search', async (req, res) => {
-//   const { question } = req.body;
-  
-//   if (!question) {
-//     return res.status(400).json({ message: '问题不能为空' });
-//   }
-
-//   console.log(`语义搜索请求收到: "${question}"`);
-
-//   try {
-//     // 简化实体提取 - 对于"XX是谁"类问题直接提取前面的部分
-//     const entityPattern = /(.*?)(?:是谁|是什么|的关系|有什么|有哪些|属性)?[\?？]?$/;
-//     const match = question.match(entityPattern);
-//     let entityName = match ? match[1].trim() : question.trim();
+// === 修改现有的语义搜索接口 ===
+router.post('/semantic-search', async (req, res) => {
+    const { question } = req.body;
     
-//     console.log(`提取的实体名称: "${entityName}"`);
-    
-//     // 直接输出当前查询参数，便于调试
-//     console.log(`执行精确查询: MATCH (n {name: "${entityName}"}) ...`);
-    
-//     // 构建查询 - 精确匹配
-//     let result = await session.run(`
-//       MATCH (n {name: $name})
-//       OPTIONAL MATCH (n)-[r]-(m)
-//       RETURN n, r, m
-//     `, { name: entityName });
-    
-//     console.log(`精确查询结果记录数: ${result.records.length}`);
-    
-//     // 如果精确匹配没有结果，尝试模糊匹配
-//     if (result.records.length === 0) {
-//       console.log(`尝试模糊匹配: MATCH (n) WHERE n.name CONTAINS "${entityName}" ...`);
-//       result = await session.run(`
-//         MATCH (n)
-//         WHERE n.name CONTAINS $name
-//         OPTIONAL MATCH (n)-[r]-(m)
-//         RETURN n, r, m
-//         LIMIT 10
-//       `, { name: entityName });
-      
-//       console.log(`模糊查询结果记录数: ${result.records.length}`);
-//     }
+    if (!question) {
+        return res.status(400).json({ message: '问题不能为空' });
+    }
 
-//     const response = {
-//       nodes: [],
-//       relationships: []
-//     };
+    console.log(`语义搜索请求收到: "${question}"`);
 
-//     // 处理结果
-//     if (result.records.length > 0) {
-//       result.records.forEach(record => {
-//         const nodeN = record.get('n');
-//         const rel = record.get('r');
-//         const nodeM = record.get('m');
+    try {
+        // 简化实体提取
+        const entityPattern = /(.*?)(?:是谁|是什么|的关系|有什么|有哪些|属性)?[\?？]?$/;
+        const match = question.match(entityPattern);
+        let entityName = match ? match[1].trim() : question.trim();
+        
+        console.log(`提取的实体名称: "${entityName}"`);
+        
+        // 使用增强的模糊搜索
+        const searchResults = await enhancedFuzzySearch(entityName, session);
+        
+        const response = {
+            nodes: [],
+            relationships: [],
+            searchInfo: {
+                originalQuery: entityName,
+                totalMatches: searchResults.length,
+                matchTypes: [...new Set(searchResults.map(r => r.matchType))]
+            }
+        };
 
-//         // 添加主节点
-//         if (nodeN && !response.nodes.some(n => n.id === nodeN.identity.toString())) {
-//           console.log(`找到节点: ${nodeN.properties.name || '未命名节点'}`);
-//           response.nodes.push({
-//             id: nodeN.identity.toString(),
-//             labels: nodeN.labels,
-//             name: nodeN.properties.name || '未命名节点',
-//             properties: nodeN.properties
-//           });
-//         }
+        // 处理搜索结果 - 修复bug：正确访问包装的record对象
+        if (searchResults.length > 0) {
+            const nodeMap = new Map();
+            
+            searchResults.forEach(resultItem => {
+                // 修复：resultItem是包装对象，需要访问其中的record属性
+                const neo4jRecord = resultItem.record;
+                
+                if (!neo4jRecord) {
+                    console.warn('发现一个没有record的搜索结果项:', resultItem);
+                    return;
+                }
 
-//         // 添加关联节点
-//         if (nodeM && !response.nodes.some(n => n.id === nodeM.identity.toString())) {
-//           console.log(`找到关联节点: ${nodeM.properties.name || '未命名节点'}`);
-//           response.nodes.push({
-//             id: nodeM.identity.toString(),
-//             labels: nodeM.labels,
-//             name: nodeM.properties.name || '未命名节点',
-//             properties: nodeM.properties
-//           });
-//         }
+                const nodeN = neo4jRecord.get('n');
+                const rel = neo4jRecord.get('r');
+                const nodeM = neo4jRecord.get('m');
 
-//         // 添加关系
-//         if (rel) {
-//           response.relationships.push({
-//             id: rel.identity.toString(),
-//             type: rel.type,
-//             startNode: rel.start.toString(),
-//             endNode: rel.end.toString(),
-//             properties: rel.properties
-//           });
-//         }
-//       });
-//     } else {
-//       console.log(`未找到任何匹配的节点`);
-//     }
+                // 添加主节点
+                if (nodeN && !nodeMap.has(nodeN.identity.toString())) {
+                    const nodeInfo = {
+                        id: nodeN.identity.toString(),
+                        labels: nodeN.labels,
+                        name: nodeN.properties.name || '未命名节点',
+                        properties: nodeN.properties,
+                        matchScore: resultItem.score || 0,  // 从包装对象获取分数
+                        matchType: resultItem.matchType || 'unknown'  // 从包装对象获取类型
+                    };
+                    nodeMap.set(nodeN.identity.toString(), nodeInfo);
+                    response.nodes.push(nodeInfo);
+                    
+                    console.log(`找到节点: ${nodeInfo.name} (匹配度: ${(resultItem.score * 100).toFixed(1)}%, 类型: ${resultItem.matchType})`);
+                }
 
-//     // 输出完整响应数据
-//     console.log(`响应内容: ${JSON.stringify(response)}`);
-//     res.json(response);
-    
-//   } catch (error) {
-//     console.error('语义搜索时出错:', error);
-//     res.status(500).json({ message: '搜索执行失败', error: error.message });
-//   }
-// });
+                // 添加关联节点
+                if (nodeM && !nodeMap.has(nodeM.identity.toString())) {
+                    const nodeInfo = {
+                        id: nodeM.identity.toString(),
+                        labels: nodeM.labels,
+                        name: nodeM.properties.name || '未命名节点',
+                        properties: nodeM.properties,
+                        matchScore: 0, // 关联节点不参与匹配评分
+                        matchType: 'related'
+                    };
+                    nodeMap.set(nodeM.identity.toString(), nodeInfo);
+                    response.nodes.push(nodeInfo);
+                }
+
+                // 添加关系
+                if (rel) {
+                    const relExists = response.relationships.some(r => r.id === rel.identity.toString());
+                    if (!relExists) {
+                        response.relationships.push({
+                            id: rel.identity.toString(),
+                            type: rel.type,
+                            startNode: rel.start.toString(),
+                            endNode: rel.end.toString(),
+                            properties: rel.properties
+                        });
+                    }
+                }
+            });
+            
+            // 按匹配分数排序节点
+            response.nodes.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+        } else {
+            console.log(`未找到任何匹配的节点`);
+        }
+
+        console.log(`最终响应: ${response.nodes.length} 个节点, ${response.relationships.length} 个关系`);
+        console.log(`匹配类型: ${response.searchInfo.matchTypes.join(', ')}`);
+        
+        res.json(response);
+        
+    } catch (error) {
+        console.error('语义搜索时出错:', error);
+        // 如果出错，返回空结果而不是抛出500错误，提供更好的用户体验
+        res.json({ 
+            nodes: [], 
+            relationships: [],
+            searchInfo: {
+                originalQuery: req.body.question,
+                totalMatches: 0,
+                matchTypes: [],
+                error: '搜索过程中出现错误，请尝试其他关键词'
+            }
+        });
+    }
+});
 
 
 // === 模糊查询辅助函数 ===
@@ -947,8 +965,9 @@ router.post('/semantic-search', async (req, res) => {
         res.json(response);
         
     } catch (error) {
-        console.error('语义搜索时出错:', error);
-        res.status(500).json({ message: '搜索执行失败', error: error.message });
+        console.error('【已跳过】语义搜索时出错:', error.message);
+        // 直接返回空数组，告诉前端“什么也没找到”
+        res.json({ nodes: [], relationships: [] });
     }
 });
 
