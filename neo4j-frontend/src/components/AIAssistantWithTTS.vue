@@ -268,40 +268,83 @@ export default {
     const animationFrameId = ref(null)
 
     // 音频解锁函数
-    const tryUnlockAudio = () => {
-      if (isAudioUnlocked.value) return;
-      isAudioUnlocked.value = true;
-      console.log('Audio context unlock attempted.');
-      
-      if (queuedWelcomeMessage.value) {
-        console.log('Playing queued welcome message.');
-        startSpeaking(queuedWelcomeMessage.value, true);
-        queuedWelcomeMessage.value = null;
-      }
-    };
+const tryUnlockAudio = () => {
+  if (isAudioUnlocked.value) return;
+  
+  console.log('Attempting to unlock audio context...');
+  
+  // 创建一个静音音频来解锁
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const oscillator = audioContext.createOscillator();
+  const gainNode = audioContext.createGain();
+  
+  oscillator.connect(gainNode);
+  gainNode.connect(audioContext.destination);
+  gainNode.gain.value = 0; // 静音
+  oscillator.frequency.value = 440;
+  oscillator.start();
+  oscillator.stop(audioContext.currentTime + 0.01);
+  
+  isAudioUnlocked.value = true;
+  console.log('Audio context unlocked successfully.');
+  
+  if (queuedWelcomeMessage.value) {
+    console.log('Playing queued welcome message.');
+    startSpeaking(queuedWelcomeMessage.value, true);
+    queuedWelcomeMessage.value = null;
+  }
+};
     
-    // TTS 播报函数
-    const startSpeaking = (text, isSystemMessage = false) => {
-      if (!isTTSEnabled.value || !text || text.trim().length === 0) {
-        return;
-      }
-      
-      if (isSystemMessage && !isAudioUnlocked.value) {
-        console.log(`Audio not unlocked. Queuing welcome message: "${text}"`);
-        queuedWelcomeMessage.value = text;
-        return;
-      }
-      
-      if (!speechService.value) {
-          console.error("Speech service not available to speak.");
-          return;
-      }
 
-      const cleanedText = cleanTextForSpeech(text);
-      if (cleanedText) {
-        speechService.value.synthesize(cleanedText);
+// 添加TTS错误计数器
+const ttsErrorCount = ref(0);
+const lastTtsError = ref(0);
+const maxTtsErrors = 3;
+
+
+
+// 修改 startSpeaking 函数，添加错误防护
+const startSpeaking = (text, isSystemMessage = false) => {
+  if (!isTTSEnabled.value || !text || text.trim().length === 0) {
+    return;
+  }
+  
+  // *** 关键修复：检查是否是TTS错误消息，避免无限循环 ***
+  if (text.includes('TTS播放失败') || text.includes('语音播报失败') || 
+      text.includes('音频播放被中断') || text.includes('语音服务遇到问题') ||
+      text.includes('语音识别服务错误')) {
+    const now = Date.now();
+    if (now - lastTtsError.value < 10000) { // 10秒内
+      ttsErrorCount.value++;
+      if (ttsErrorCount.value >= maxTtsErrors) {
+        console.warn('TTS error loop detected, skipping TTS for error messages');
+        return; // 直接返回，不播放TTS
       }
-    };
+    } else {
+      ttsErrorCount.value = 0;
+    }
+    lastTtsError.value = now;
+  }
+  
+  if (isSystemMessage && !isAudioUnlocked.value) {
+    console.log(`Audio not unlocked. Queuing message: "${text}"`);
+    queuedWelcomeMessage.value = text;
+    return;
+  }
+  
+  if (!speechService.value) {
+    console.error("Speech service not available to speak.");
+    return;
+  }
+
+  const cleanedText = cleanTextForSpeech(text);
+  if (cleanedText) {
+    console.log('Starting TTS for text:', cleanedText);
+    speechService.value.synthesize(cleanedText);
+  }
+};
+
+
 
     // 计算属性
     const getVoiceOverlayIcon = computed(() => {
@@ -396,56 +439,59 @@ export default {
       return recognition;
     };
 
-    // toggleListening 函数，支持两种语音识别方式
-    const toggleListening = () => {
-      tryUnlockAudio();
+    console.log('当前AppKey:', alibabaSpeechConfig.appKey);
+// 应该输出: yXfaTeWXf28V9pEh
 
-      if (isListening.value) {
-        // 停止监听
-        if (useBrowserASR.value && browserRecognition.value) {
-          console.log('Stopping browser speech recognition');
-          browserRecognition.value.stop();
-        } else if (speechService.value) {
-          console.log('User clicked stop button.');
-          speechService.value.stop();
-        }
-        return;
+// toggleListening 函数 - 修复版
+const toggleListening = () => {
+  // 确保音频解锁
+  tryUnlockAudio();
+
+  if (isListening.value) {
+    // 停止监听
+    if (useBrowserASR.value && browserRecognition.value) {
+      console.log('Stopping browser speech recognition');
+      browserRecognition.value.stop();
+    } else if (speechService.value) {
+      console.log('User clicked stop button.');
+      speechService.value.stop();
+    }
+    return;
+  }
+
+  if (isTyping.value || isSpeakingOnlyTTS.value) {
+    console.log('Cannot start listening while AI is busy.');
+    return;
+  }
+
+  console.log('Starting a new listening session...');
+  userInput.value = ''; 
+  interimTranscript.value = '';
+  nextTick(() => { autoGrowTextarea() });
+
+  // 根据配置选择使用哪种语音识别
+  if (useBrowserASR.value) {
+    if (!browserRecognition.value) {
+      browserRecognition.value = initBrowserSpeechRecognition();
+    }
+    if (browserRecognition.value) {
+      try {
+        browserRecognition.value.start();
+      } catch (e) {
+        console.error('Failed to start browser speech recognition:', e);
+        addSystemMessage('启动语音识别失败，请重试。');
       }
-
-      if (isTyping.value || isSpeakingOnlyTTS.value) {
-        console.log('Cannot start listening while AI is busy.');
-        return;
-      }
-
-      console.log('Starting a new listening session...');
-      userInput.value = ''; 
-      interimTranscript.value = '';
-      nextTick(() => { autoGrowTextarea() });
-
-      // 根据配置选择使用哪种语音识别
-      if (useBrowserASR.value) {
-        if (!browserRecognition.value) {
-          browserRecognition.value = initBrowserSpeechRecognition();
-        }
-        if (browserRecognition.value) {
-          try {
-            browserRecognition.value.start();
-          } catch (e) {
-            console.error('Failed to start browser speech recognition:', e);
-            addSystemMessage('启动语音识别失败，请重试。');
-          }
-        } else {
-          addSystemMessage('您的浏览器不支持语音识别功能。');
-        }
-      } else {
-        if (!speechService.value) {
-          addSystemMessage('语音服务未初始化。');
-          return;
-        }
-        speechService.value.start();
-      }
-    };
-
+    } else {
+      addSystemMessage('您的浏览器不支持语音识别功能。');
+    }
+  } else {
+    if (!speechService.value) {
+      addSystemMessage('语音服务未初始化。');
+      return;
+    }
+    speechService.value.start();
+  }
+};
     // 切换语音识别模式
     const toggleASRMode = () => {
       useBrowserASR.value = !useBrowserASR.value;
@@ -463,21 +509,36 @@ export default {
     };
 
     const sendMessage = async () => {
-      tryUnlockAudio();
-      if (isListening.value) {
-        if (useBrowserASR.value && browserRecognition.value) {
-          browserRecognition.value.stop();
-        } else if (speechService.value) {
-          speechService.value.stop();
-        }
-      }
-      const userMessage = userInput.value.trim()
-      if (!userMessage || isTyping.value) return
 
-      if (isSpeakingOnlyTTS.value && speechService.value) {
-        if(speechService.value.audioPlayer) speechService.value.audioPlayer.pause();
+
+
+
+ tryUnlockAudio(); // 确保在发送消息时解锁音频
+  
+  if (isListening.value) {
+    if (useBrowserASR.value && browserRecognition.value) {
+      browserRecognition.value.stop();
+    } else if (speechService.value) {
+      speechService.value.stop();
+    }
+  }
+  
+  const userMessage = userInput.value.trim()
+  if (!userMessage || isTyping.value) return
+
+  // 安全地停止当前的TTS播放
+  if (isSpeakingOnlyTTS.value && speechService.value && speechService.value.audioPlayer) {
+    try {
+      if (!speechService.value.audioPlayer.paused) {
+        speechService.value.audioPlayer.pause();
       }
-      
+    } catch (e) {
+      console.warn('Error stopping TTS:', e);
+    }
+  }
+
+
+
       if (!deepSeekApiKey.value) {
         addSystemMessage('⚠️ 错误：未配置 DeepSeek API Key。请检查 .env.local 文件并重启服务。');
         return;
@@ -1172,64 +1233,102 @@ ${baseInstructions}
       })
     }
     
-    const initializeApp = () => {
-      // Check for API Key on load
-      if (!deepSeekApiKey.value) {
-        console.error("VUE_APP_DEEPSEEK_API_KEY is not set in your .env.local file.");
-        addSystemMessage('⚠️ 错误：未配置大模型 API Key。请在 .env.local 文件中设置 VUE_APP_DEEPSEEK_API_KEY 并重启服务。');
-      }
+// 修改 initializeApp 函数，确保安全地设置回调
+const initializeApp = () => {
+  // Check for API Key on load
+  if (!deepSeekApiKey.value) {
+    console.error("VUE_APP_DEEPSEEK_API_KEY is not set in your .env.local file.");
+    addSystemMessage('⚠️ 错误：未配置大模型 API Key。请在 .env.local 文件中设置 VUE_APP_DEEPSEEK_API_KEY 并重启服务。');
+  }
 
-      // 检测浏览器语音识别支持
-      const hasBrowserSpeechSupport = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+  // 检测浏览器语音识别支持
+  const hasBrowserSpeechSupport = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+  
+  // 先尝试初始化阿里云语音服务
+  try {
+    speechService.value = new AlibabaSpeechService(alibabaSpeechConfig);
+    console.log('AlibabaSpeechService initialized successfully');
+  } catch (error) {
+    console.error('Failed to initialize AlibabaSpeechService:', error);
+    speechService.value = null;
+  }
+  
+  // *** 修复：只有在speechService成功初始化后才设置回调 ***
+  if (speechService.value) {
+    // 设置阿里云语音服务的回调
+    speechService.value.onRecognitionStarted = () => { 
+      isListening.value = true; 
+      startSpectrumAnimation(); 
+    };
+    
+    speechService.value.onRecognitionResultChange = (text) => { 
+      interimTranscript.value = text; 
+    };
+    
+    speechService.value.onRecognitionCompleted = (text) => {
+      if (text && text.trim()) {
+        userInput.value = text.trim();
+        sendMessage();
+      }
+    };
+    
+    speechService.value.onRecordingStop = () => { 
+      isListening.value = false; 
+      interimTranscript.value = ''; 
+      stopSpectrumAnimation(); 
+    };
+    
+    speechService.value.onTTSSpeaking = (speaking) => { 
+      isSpeakingOnlyTTS.value = speaking; 
+    };
+    
+    // *** 关键修复：安全的错误处理回调 ***
+    speechService.value.onError = (error) => { 
+      console.error('Speech service error:', error);
       
-      // 先尝试初始化阿里云语音服务
-      speechService.value = new AlibabaSpeechService(alibabaSpeechConfig);
-      
-      // 设置阿里云语音服务的回调
-      speechService.value.onRecognitionStarted = () => { 
-        isListening.value = true; 
-        startSpectrumAnimation(); 
-      };
-      speechService.value.onRecognitionResultChange = (text) => { 
-        interimTranscript.value = text; 
-      };
-      speechService.value.onRecognitionCompleted = (text) => {
-        if (text && text.trim()) {
-          userInput.value = text.trim();
-          sendMessage();
-        }
-      };
-      speechService.value.onRecordingStop = () => { 
-        isListening.value = false; 
-        interimTranscript.value = ''; 
-        stopSpectrumAnimation(); 
-      };
-      speechService.value.onTTSSpeaking = (speaking) => { 
-        isSpeakingOnlyTTS.value = speaking; 
-      };
-      speechService.value.onError = (error) => { 
-        addSystemMessage(`语音服务遇到问题: ${error}`); 
-        isListening.value = false; 
-        isSpeakingOnlyTTS.value = false; 
-        stopSpectrumAnimation(); 
+      // 区分ASR和TTS错误，避免TTS错误循环
+      if (error.includes('TTS') || error.includes('语音播报') || error.includes('音频')) {
+        // 对于TTS错误，只显示文字提示，不尝试语音播报
+        const errorMsg = `⚠️ TTS错误: ${error}`;
+        chatMessages.value.push({ 
+          role: 'system', 
+          content: errorMsg, 
+          mainContent: errorMsg,
+          source: 'system',
+          timestamp: new Date()
+        });
+        nextTick(() => { scrollToBottom() });
+      } else {
+        // 对于ASR错误，可以正常处理
+        addSystemMessage(`语音服务遇到问题: ${error}`);
         
-        // 如果阿里云服务失败，提示用户可以切换到浏览器语音识别
+        // 只对ASR错误提供切换建议
         if (!useBrowserASR.value && hasBrowserSpeechSupport) {
           addSystemMessage('您可以尝试切换到浏览器内置语音识别（点击云朵按钮切换）。');
         }
-      };
-
-      // 欢迎消息
-      let welcomeMessage = '您好！我是文物领域智能语音助手，请问有什么可以帮您的？';
-      if (!hasBrowserSpeechSupport) {
-        welcomeMessage += '\n提示：您的浏览器不支持内置语音识别，建议使用Chrome或Edge浏览器。';
-      } else {
-        welcomeMessage += '点击麦克风图标可以开始语音输入。';
       }
-      addSystemMessage(welcomeMessage);
       
-      testDatabaseConnection();
-    }
+      isListening.value = false; 
+      isSpeakingOnlyTTS.value = false; 
+      stopSpectrumAnimation(); 
+    };
+    
+    console.log('Speech service callbacks set successfully');
+  } else {
+    console.warn('Failed to initialize speech service, some features will be disabled');
+  }
+
+  // 欢迎消息
+  let welcomeMessage = '您好！我是文物领域智能语音助手，请问有什么可以帮您的？';
+  if (!hasBrowserSpeechSupport) {
+    welcomeMessage += '\n提示：您的浏览器不支持内置语音识别，建议使用Chrome或Edge浏览器。';
+  } else {
+    welcomeMessage += '点击麦克风图标可以开始语音输入。';
+  }
+  addSystemMessage(welcomeMessage);
+  
+  testDatabaseConnection();
+};
 
     onMounted(() => {
       initializeApp()
