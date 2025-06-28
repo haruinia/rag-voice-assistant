@@ -1,0 +1,823 @@
+/*
+ * M5EchoBase AI语音助手 - 音频录制修复版
+ */
+
+#include <Arduino.h>
+#include <M5EchoBase.h>
+#include <M5GFX.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+
+// WiFi 配置
+const char* ssid = "309";        
+const char* password = "zhen_309"; 
+
+// 服务器配置
+const char* serverHost = "192.168.1.105";   
+const int serverPort = 3000;
+const String deviceId = "M5EchoBase_001";   
+
+// *** 修复：优化音频配置 ***
+#define RECORD_SIZE (1024 * 32)  // 减小到32KB，提高传输效率
+#define SAMPLE_RATE 16000        
+#define BUTTON_PIN 41            
+
+// 设备状态
+enum DeviceState {
+  STATE_IDLE,
+  STATE_CONNECTING,
+  STATE_LISTENING,
+  STATE_UPLOADING,
+  STATE_PROCESSING,
+  STATE_SPEAKING,
+  STATE_ERROR
+};
+
+// 全局变量
+M5EchoBase echobase(I2S_NUM_0);
+M5GFX display;
+DeviceState currentState = STATE_IDLE;
+static uint8_t *audioBuffer = nullptr;
+String sessionId = "";
+unsigned long lastButtonPress = 0;
+unsigned long stateStartTime = 0;
+bool buttonPressed = false;
+
+// 函数声明
+void setupWiFi();
+void setupDisplay();
+void setupEchoBase();
+void handleStateMachine();
+void checkButton();
+void updateDisplay();
+void startListening();
+void sendConversationRequest();
+void changeState(DeviceState newState);
+void showError(String message);
+String urlDecode(String str);
+void playRealAudioData(uint8_t* audioData, size_t audioSize, String contentType);
+void playMP3Audio(uint8_t* audioData, size_t audioSize);
+void playWAVAudio(uint8_t* audioData, size_t audioSize);
+void playRawAudio(uint8_t* audioData, size_t audioSize);
+void simulateAudioPlayback(size_t audioSize);
+bool testAudioRecording(); // 新增：音频录制测试
+
+void setup() {
+    Serial.begin(115200);
+    Serial.println("M5EchoBase AI Assistant Starting...");
+    
+    setupDisplay();
+    setupEchoBase();
+    
+    // *** 新增：录音测试 ***
+    if (testAudioRecording()) {
+        Serial.println("✅ Audio recording test passed!");
+        display.fillScreen(BLACK);
+        display.setCursor(10, 10);
+        display.setTextColor(GREEN);
+        display.setTextSize(2);
+        display.println("Audio OK!");
+        delay(2000);
+    } else {
+        Serial.println("❌ Audio recording test failed!");
+        showError("Audio Error!");
+        delay(5000);
+    }
+    
+    setupWiFi();
+    
+    sessionId = deviceId + "_" + String(millis());
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+    
+    Serial.println("Setup completed!");
+    changeState(STATE_IDLE);
+}
+
+void loop() {
+    checkButton();
+    handleStateMachine();
+    updateDisplay();
+    
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("WiFi disconnected, reconnecting...");
+        changeState(STATE_CONNECTING);
+        setupWiFi();
+    }
+    
+    delay(50);
+}
+
+void setupDisplay() {
+    display.begin();
+    display.setRotation(2);
+    display.fillScreen(BLACK);
+    display.setTextColor(WHITE);
+    display.setTextSize(2);
+    display.setCursor(10, 10);
+    display.println("Booting...");
+    Serial.println("Display initialized");
+}
+
+// *** 修复：按照官方示例优化EchoBase设置 ***
+void setupEchoBase() {
+    // 使用官方示例的初始化参数
+    echobase.init(SAMPLE_RATE, 38, 39, 7, 6, 5, 8, Wire);
+    
+    // *** 关键修复：使用官方推荐的音频参数 ***
+    echobase.setSpeakerVolume(70);              // 降低音量，避免回声
+    echobase.setMicGain(ES8311_MIC_GAIN_12DB);  // 使用官方推荐的12dB增益
+    
+    audioBuffer = (uint8_t *)malloc(RECORD_SIZE);
+    if (audioBuffer == nullptr) {
+        Serial.println("Failed to allocate audio buffer!");
+        showError("Memory Error!");
+        while(true) delay(1000);
+    }
+    
+    Serial.printf("EchoBase initialized - Buffer size: %d bytes\n", RECORD_SIZE);
+    Serial.printf("Audio config: %d Hz, 12dB gain, 70%% volume\n", SAMPLE_RATE);
+}
+
+// *** 新增：音频录制测试函数 ***
+bool testAudioRecording() {
+    Serial.println("=== Audio Recording Test ===");
+    
+    // 临时缓冲区用于测试
+    uint8_t* testBuffer = (uint8_t*)malloc(1024 * 8); // 8KB测试
+    if (!testBuffer) {
+        Serial.println("Test buffer allocation failed");
+        return false;
+    }
+    
+    display.fillScreen(BLACK);
+    display.setCursor(10, 10);
+    display.setTextColor(YELLOW);
+    display.setTextSize(2);
+    display.println("Testing");
+    display.println("Audio...");
+    
+    // 清空缓冲区
+    memset(testBuffer, 0, 1024 * 8);
+    
+    // 按照官方示例的录音流程
+    echobase.setMute(true);
+    delay(100);
+    
+    Serial.println("Recording test audio...");
+    echobase.record(testBuffer, 1024 * 8);
+    
+    echobase.setMute(false);
+    delay(100);
+    
+    // 检查音频数据是否有效（不全为0或固定值）
+    bool hasValidData = false;
+    uint8_t firstByte = testBuffer[0];
+    int differentBytes = 0;
+    int nonZeroBytes = 0;
+    
+    for (int i = 0; i < 1024 * 8; i++) {
+        if (testBuffer[i] != 0) nonZeroBytes++;
+        if (testBuffer[i] != firstByte) differentBytes++;
+    }
+    
+    float dataVariety = (float)differentBytes / (1024 * 8) * 100;
+    float nonZeroPercent = (float)nonZeroBytes / (1024 * 8) * 100;
+    
+    Serial.printf("Audio test results:\n");
+    Serial.printf("  Non-zero bytes: %.1f%%\n", nonZeroPercent);
+    Serial.printf("  Data variety: %.1f%%\n", dataVariety);
+    Serial.printf("  First 16 bytes: ");
+    for (int i = 0; i < 16; i++) {
+        Serial.printf("%02X ", testBuffer[i]);
+    }
+    Serial.println();
+    
+    // 判断录音是否成功
+    hasValidData = (nonZeroPercent > 10 && dataVariety > 5);
+    
+    if (hasValidData) {
+        Serial.println("✅ Audio recording test PASSED");
+    } else {
+        Serial.println("❌ Audio recording test FAILED");
+        Serial.println("Possible issues:");
+        Serial.println("  - Microphone not connected properly");
+        Serial.println("  - No audio input during test");
+        Serial.println("  - Hardware configuration error");
+    }
+    
+    free(testBuffer);
+    return hasValidData;
+}
+
+void setupWiFi() {
+    changeState(STATE_CONNECTING);
+    
+    WiFi.begin(ssid, password);
+    Serial.print("Connecting to WiFi");
+    
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+        
+        display.fillScreen(BLACK);
+        display.setCursor(10, 10);
+        display.printf("WiFi: %d/30", attempts);
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println();
+        Serial.println("WiFi connected!");
+        Serial.print("IP address: ");
+        Serial.println(WiFi.localIP());
+        
+        display.fillScreen(BLACK);
+        display.setCursor(10, 10);
+        display.println("WiFi OK!");
+        display.setCursor(10, 40);
+        display.println(WiFi.localIP().toString());
+        delay(2000);
+    } else {
+        showError("WiFi Failed!");
+        delay(5000);
+    }
+}
+
+void handleStateMachine() {
+    unsigned long currentTime = millis();
+    
+    switch (currentState) {
+        case STATE_IDLE:
+            break;
+            
+        case STATE_CONNECTING:
+            break;
+            
+        case STATE_LISTENING:
+            // *** 修复：减少录音时间到5秒 ***
+            if (currentTime - stateStartTime > 5000) {
+                Serial.println("Recording timeout (5s)");
+                changeState(STATE_UPLOADING);
+            }
+            break;
+            
+        case STATE_UPLOADING:
+            sendConversationRequest();
+            break;
+            
+        case STATE_PROCESSING:
+            if (currentTime - stateStartTime > 30000) {
+                showError("Timeout!");
+                changeState(STATE_IDLE);
+            }
+            break;
+            
+        case STATE_SPEAKING:
+            break;
+            
+        case STATE_ERROR:
+            if (currentTime - stateStartTime > 5000) {
+                changeState(STATE_IDLE);
+            }
+            break;
+    }
+}
+
+void checkButton() {
+    bool buttonState = !digitalRead(BUTTON_PIN);
+    unsigned long currentTime = millis();
+    
+    if (buttonState && !buttonPressed && (currentTime - lastButtonPress > 300)) {
+        buttonPressed = true;
+        lastButtonPress = currentTime;
+        
+        Serial.println("Button pressed");
+        
+        if (currentState == STATE_IDLE) {
+            startListening();
+        } else if (currentState == STATE_LISTENING) {
+            Serial.println("Stop recording by button");
+            changeState(STATE_UPLOADING);
+        } else if (currentState == STATE_SPEAKING) {
+            Serial.println("Stop speaking by button");
+            changeState(STATE_IDLE);
+        }
+    } else if (!buttonState && buttonPressed) {
+        buttonPressed = false;
+    }
+}
+
+// *** 修复：改进录音流程 ***
+void startListening() {
+    if (WiFi.status() != WL_CONNECTED) {
+        showError("No WiFi!");
+        return;
+    }
+    
+    Serial.println("=== Starting Recording ===");
+    Serial.printf("Buffer size: %d bytes\n", RECORD_SIZE);
+    changeState(STATE_LISTENING);
+    
+    // *** 按照官方示例的标准流程 ***
+    memset(audioBuffer, 0, RECORD_SIZE);
+    
+    // 1. 录音前设置静音，防止扬声器干扰
+    echobase.setMute(true);
+    delay(100);  // 给静音设置一些时间
+    
+    Serial.println("Recording started...");
+    
+    // 2. 开始录音
+    echobase.record(audioBuffer, RECORD_SIZE);
+    
+    Serial.println("Recording completed");
+    Serial.printf("Recorded %d bytes\n", RECORD_SIZE);
+    
+    // 3. 录音后取消静音
+    echobase.setMute(false);
+    delay(50);
+    
+    // *** 新增：录音质量检查 ***
+    int nonZeroBytes = 0;
+    int differentValues = 0;
+    uint8_t firstByte = audioBuffer[0];
+    
+    for (size_t i = 0; i < RECORD_SIZE; i++) {
+        if (audioBuffer[i] != 0) nonZeroBytes++;
+        if (audioBuffer[i] != firstByte) differentValues++;
+    }
+    
+    float quality = (float)differentValues / RECORD_SIZE * 100;
+    float activity = (float)nonZeroBytes / RECORD_SIZE * 100;
+    
+    Serial.printf("Audio quality check:\n");
+    Serial.printf("  Activity: %.1f%% (non-zero bytes)\n", activity);
+    Serial.printf("  Variety: %.1f%% (different values)\n", quality);
+    
+    if (activity < 5 || quality < 1) {
+        Serial.println("⚠️ Warning: Low audio activity detected");
+        Serial.println("Please speak louder or check microphone");
+    } else {
+        Serial.println("✅ Good audio activity detected");
+    }
+}
+
+// *** 修复：使用原来可工作的HTTP请求方式 ***
+void sendConversationRequest() {
+    if (WiFi.status() != WL_CONNECTED) {
+        showError("No WiFi!");
+        return;
+    }
+    
+    changeState(STATE_PROCESSING);
+    
+    Serial.println("=== Sending Conversation Request ===");
+    Serial.printf("Sending audio buffer: %d bytes\n", RECORD_SIZE);
+    
+    HTTPClient http;
+    String url = "http://" + String(serverHost) + ":" + String(serverPort) + 
+                 "/api/hardware/devices/" + deviceId + "/conversation";
+    
+    Serial.println("Request URL: " + url);
+    
+    http.begin(url);
+    http.setTimeout(60000);
+    
+    // 构建multipart/form-data请求
+    String boundary = "----M5EchoBaseBoundary" + String(millis());
+    String contentType = "multipart/form-data; boundary=" + boundary;
+    
+    // *** 构建完整的请求体 - 使用原来的方式但确保包含所有数据 ***
+    String postData = "--" + boundary + "\r\n";
+    postData += "Content-Disposition: form-data; name=\"sessionId\"\r\n\r\n";
+    postData += sessionId + "\r\n";
+    
+    postData += "--" + boundary + "\r\n";
+    postData += "Content-Disposition: form-data; name=\"voice\"\r\n\r\n";
+    postData += "xiaomei\r\n";
+    
+    postData += "--" + boundary + "\r\n";
+    postData += "Content-Disposition: form-data; name=\"format\"\r\n\r\n";
+    postData += "mp3\r\n";
+    
+    postData += "--" + boundary + "\r\n";
+    postData += "Content-Disposition: form-data; name=\"audio\"; filename=\"audio.wav\"\r\n";
+    postData += "Content-Type: audio/wav\r\n\r\n";
+    
+    // *** 关键修复：确保添加完整的音频数据 ***
+    String audioDataStr = "";
+    audioDataStr.reserve(RECORD_SIZE); // 预分配内存以提高效率
+    
+    for (size_t i = 0; i < RECORD_SIZE; i++) {
+        audioDataStr += (char)audioBuffer[i];
+    }
+    
+    postData += audioDataStr;
+    postData += "\r\n--" + boundary + "--\r\n";
+    
+    Serial.printf("Complete request size: %d bytes\n", postData.length());
+    Serial.printf("Audio data portion: %d bytes\n", audioDataStr.length());
+    
+    // 发送请求 - 使用原来可工作的方式
+    http.addHeader("Content-Type", contentType);
+    
+    int httpCode = http.POST(postData);
+    
+    Serial.printf("HTTP Response Code: %d\n", httpCode);
+    
+    if (httpCode > 0) {
+        if (httpCode == 200) {
+            Serial.println("=== Processing Response ===");
+            
+            // 获取响应头信息
+            String userText = "";
+            String aiResponse = "";
+            String responseContentType = "";
+            int contentLength = 0;
+            
+            // 读取所有响应头
+            for (int i = 0; i < http.headers(); i++) {
+                String headerName = http.headerName(i);
+                String headerValue = http.header(i);
+                
+                Serial.printf("Header: %s = %s\n", headerName.c_str(), headerValue.c_str());
+                
+                if (headerName == "X-User-Text") {
+                    userText = urlDecode(headerValue);
+                } else if (headerName == "X-AI-Response") {
+                    aiResponse = urlDecode(headerValue);
+                } else if (headerName == "Content-Type") {
+                    responseContentType = headerValue;
+                } else if (headerName == "Content-Length") {
+                    contentLength = headerValue.toInt();
+                }
+            }
+            
+            // 显示对话信息
+            if (userText.length() > 0) {
+                Serial.println("User: " + userText);
+            }
+            if (aiResponse.length() > 0) {
+                Serial.println("AI: " + aiResponse);
+                // 在屏幕上显示AI回复的前几个字
+                display.fillScreen(BLACK);
+                display.setCursor(5, 5);
+                display.setTextSize(1);
+                display.setTextColor(GREEN);
+                display.println("AI Response:");
+                display.println(aiResponse.substring(0, 100) + "...");
+                delay(2000);
+            }
+            
+            // *** 关键：处理真实音频数据 ***
+            if (contentLength > 0) {
+                Serial.printf("=== Receiving Audio Data ===\n");
+                Serial.printf("Audio format: %s\n", responseContentType.c_str());
+                Serial.printf("Audio size: %d bytes\n", contentLength);
+                
+                // 分配音频接收缓冲区
+                uint8_t* audioResponseBuffer = (uint8_t*)malloc(contentLength);
+                if (audioResponseBuffer == nullptr) {
+                    Serial.println("Failed to allocate audio response buffer!");
+                    showError("Memory Error!");
+                    http.end();
+                    return;
+                }
+                
+                // 接收音频数据
+                WiFiClient* stream = http.getStreamPtr();
+                int totalReceived = 0;
+                int chunkSize = 1024;
+                
+                changeState(STATE_PROCESSING);
+                display.fillScreen(BLACK);
+                display.setCursor(10, 10);
+                display.setTextColor(BLUE);
+                display.setTextSize(2);
+                display.println("Receiving");
+                display.println("Audio...");
+                
+                while (totalReceived < contentLength && stream->connected()) {
+                    if (stream->available()) {
+                        int toRead = min(stream->available(), min(chunkSize, contentLength - totalReceived));
+                        int bytesRead = stream->readBytes(audioResponseBuffer + totalReceived, toRead);
+                        totalReceived += bytesRead;
+                        
+                        // 显示接收进度
+                        if (totalReceived % 5120 == 0) { // 每5KB显示一次
+                            Serial.printf("Received: %d/%d bytes (%.1f%%)\n", 
+                                        totalReceived, contentLength, 
+                                        (float)totalReceived * 100.0 / contentLength);
+                        }
+                    } else {
+                        delay(10);
+                    }
+                }
+                
+                Serial.printf("Audio reception completed: %d bytes\n", totalReceived);
+                
+                if (totalReceived > 0) {
+                    // *** 播放真实音频数据 ***
+                    playRealAudioData(audioResponseBuffer, totalReceived, responseContentType);
+                } else {
+                    Serial.println("No audio data received");
+                    showError("No Audio!");
+                }
+                
+                // 释放音频缓冲区
+                free(audioResponseBuffer);
+                
+            } else {
+                Serial.println("No audio content in response");
+                showError("No Audio!");
+            }
+            
+            changeState(STATE_IDLE);
+            
+        } else {
+            Serial.printf("HTTP Error: %d\n", httpCode);
+            String errorResponse = http.getString();
+            Serial.println("Error response: " + errorResponse);
+            showError("Server Error!");
+        }
+    } else {
+        Serial.printf("HTTP Request Failed: %d\n", httpCode);
+        showError("Request Failed!");
+    }
+    
+    http.end();
+    Serial.println("=== Request Completed ===");
+}
+
+// *** 保持原有的音频播放函数不变 ***
+void playRealAudioData(uint8_t* audioData, size_t audioSize, String contentType) {
+    Serial.println("=== Starting Real Audio Playback ===");
+    Serial.printf("Audio format: %s\n", contentType.c_str());
+    Serial.printf("Audio size: %d bytes\n", audioSize);
+    
+    changeState(STATE_SPEAKING);
+    
+    echobase.setMute(false);
+    delay(100);
+    
+    if (contentType.indexOf("mp3") >= 0) {
+        Serial.println("Playing MP3 audio...");
+        playMP3Audio(audioData, audioSize);
+    } else if (contentType.indexOf("wav") >= 0) {
+        Serial.println("Playing WAV audio...");
+        playWAVAudio(audioData, audioSize);
+    } else {
+        Serial.println("Unknown audio format, attempting raw playback...");
+        playRawAudio(audioData, audioSize);
+    }
+    
+    Serial.println("Audio playback completed");
+    changeState(STATE_IDLE);
+}
+
+void playMP3Audio(uint8_t* audioData, size_t audioSize) {
+    Serial.println("=== MP3 Audio Playback ===");
+    
+    display.fillScreen(BLACK);
+    display.setCursor(10, 10);
+    display.setTextColor(MAGENTA);
+    display.setTextSize(2);
+    display.println("Playing");
+    display.println("MP3...");
+    
+    try {
+        echobase.play(audioData, audioSize);
+        
+        unsigned long playStartTime = millis();
+        while (millis() - playStartTime < 5000) {
+            for (int i = 0; i < 8; i++) {
+                int height = random(5, 25);
+                display.fillRect(10 + i * 15, 50, 10, height, MAGENTA);
+            }
+            delay(100);
+            display.fillRect(10, 50, 120, 25, BLACK);
+        }
+        
+    } catch (...) {
+        Serial.println("Direct MP3 playback failed, using alternative method");
+        simulateAudioPlayback(audioSize);
+    }
+}
+
+void playWAVAudio(uint8_t* audioData, size_t audioSize) {
+    Serial.println("=== WAV Audio Playback ===");
+    
+    display.fillScreen(BLACK);
+    display.setCursor(10, 10);
+    display.setTextColor(CYAN);
+    display.setTextSize(2);
+    display.println("Playing");
+    display.println("WAV...");
+    
+    echobase.play(audioData, audioSize);
+    
+    unsigned long playStartTime = millis();
+    while (millis() - playStartTime < 3000) {
+        for (int i = 0; i < 8; i++) {
+            int height = random(5, 25);
+            display.fillRect(10 + i * 15, 50, 10, height, CYAN);
+        }
+        delay(150);
+        display.fillRect(10, 50, 120, 25, BLACK);
+    }
+}
+
+void playRawAudio(uint8_t* audioData, size_t audioSize) {
+    Serial.println("=== Raw Audio Playback ===");
+    
+    display.fillScreen(BLACK);
+    display.setCursor(10, 10);
+    display.setTextColor(YELLOW);
+    display.setTextSize(2);
+    display.println("Playing");
+    display.println("Audio...");
+    
+    echobase.play(audioData, audioSize);
+    
+    for (int i = 0; i < 20; i++) {
+        display.fillRect(10 + (i % 8) * 15, 50, 10, random(5, 25), YELLOW);
+        delay(200);
+    }
+}
+
+void simulateAudioPlayback(size_t audioSize) {
+    Serial.println("=== Simulated Audio Playback ===");
+    
+    display.fillScreen(BLACK);
+    display.setCursor(10, 10);
+    display.setTextColor(WHITE);
+    display.setTextSize(2);
+    display.println("Audio");
+    display.println("Received");
+    
+    float estimatedDuration = (float)audioSize / (16000.0 * 2.0);
+    int playbackTimeMs = (int)(estimatedDuration * 1000);
+    playbackTimeMs = constrain(playbackTimeMs, 1000, 10000);
+    
+    Serial.printf("Estimated audio duration: %.2f seconds\n", estimatedDuration);
+    Serial.printf("Simulating playback for %d ms\n", playbackTimeMs);
+    
+    unsigned long startTime = millis();
+    while (millis() - startTime < playbackTimeMs) {
+        int progress = map(millis() - startTime, 0, playbackTimeMs, 0, 100);
+        
+        display.setCursor(10, 60);
+        display.setTextSize(1);
+        display.printf("Progress: %d%%", progress);
+        
+        for (int i = 0; i < 8; i++) {
+            int height = random(3, 15);
+            display.fillRect(10 + i * 12, 80, 8, height, WHITE);
+        }
+        
+        delay(100);
+        display.fillRect(10, 60, 120, 30, BLACK);
+    }
+    
+    display.fillScreen(BLACK);
+    display.setCursor(10, 10);
+    display.setTextSize(2);
+    display.setTextColor(GREEN);
+    display.println("Audio");
+    display.println("Complete!");
+    delay(1000);
+}
+
+String urlDecode(String str) {
+    String decoded = str;
+    decoded.replace("%20", " ");
+    decoded.replace("%21", "!");
+    decoded.replace("%22", "\"");
+    decoded.replace("%23", "#");
+    decoded.replace("%24", "$");
+    decoded.replace("%25", "%");
+    decoded.replace("%26", "&");
+    decoded.replace("%27", "'");
+    decoded.replace("%28", "(");
+    decoded.replace("%29", ")");
+    decoded.replace("%2A", "*");
+    decoded.replace("%2B", "+");
+    decoded.replace("%2C", ",");
+    decoded.replace("%2D", "-");
+    decoded.replace("%2E", ".");
+    decoded.replace("%2F", "/");
+    decoded.replace("%3A", ":");
+    decoded.replace("%3B", ";");
+    decoded.replace("%3C", "<");
+    decoded.replace("%3D", "=");
+    decoded.replace("%3E", ">");
+    decoded.replace("%3F", "?");
+    decoded.replace("%40", "@");
+    return decoded;
+}
+
+void changeState(DeviceState newState) {
+    if (currentState != newState) {
+        Serial.printf("State change: %d -> %d\n", currentState, newState);
+        currentState = newState;
+        stateStartTime = millis();
+        updateDisplay();
+    }
+}
+
+// *** 修复：改进显示更新 ***
+void updateDisplay() {
+    static DeviceState lastDisplayState = STATE_ERROR;
+    static unsigned long lastUpdate = 0;
+    unsigned long currentTime = millis();
+    
+    if (currentTime - lastUpdate < 200 && lastDisplayState == currentState) {
+        return;
+    }
+    
+    lastUpdate = currentTime;
+    lastDisplayState = currentState;
+    
+    display.fillScreen(BLACK);
+    display.setCursor(10, 10);
+    display.setTextSize(2);
+    display.setTextColor(WHITE);
+    
+    switch (currentState) {
+        case STATE_IDLE:
+            display.println("Ready!");
+            display.setCursor(10, 40);
+            display.setTextSize(1);
+            display.setTextColor(CYAN);
+            display.println("Press button for");
+            display.println("voice interaction");
+            break;
+            
+        case STATE_CONNECTING:
+            display.setTextColor(ORANGE);
+            display.println("Connecting...");
+            break;
+            
+        case STATE_LISTENING: {
+            display.setTextColor(GREEN);
+            display.println("Listening...");
+            display.setCursor(10, 40);
+            display.setTextSize(1);
+            int elapsed = (currentTime - stateStartTime) / 1000;
+            display.printf("Recording: %ds/5s", elapsed); // 更新为5秒
+            
+            if ((currentTime / 500) % 2 == 0) {
+                display.fillCircle(100, 25, 5, RED);
+            }
+            break;
+        }
+            
+        case STATE_UPLOADING:
+            display.setTextColor(YELLOW);
+            display.println("Uploading...");
+            display.setCursor(10, 40);
+            display.setTextSize(1);
+            display.printf("Sending %dKB", RECORD_SIZE / 1024);
+            break;
+            
+        case STATE_PROCESSING: {
+            display.setTextColor(BLUE);
+            display.println("AI Thinking...");
+            display.setCursor(10, 40);
+            display.setTextSize(3);
+            char spinner[] = "|/-\\";
+            display.print(spinner[(currentTime / 250) % 4]);
+            break;
+        }
+            
+        case STATE_SPEAKING: {
+            display.setTextColor(MAGENTA);
+            display.println("Speaking...");
+            break;
+        }
+            
+        case STATE_ERROR:
+            display.setTextColor(RED);
+            display.println("Error!");
+            display.setCursor(10, 40);
+            display.setTextSize(1);
+            display.println("Please try again");
+            break;
+    }
+}
+
+void showError(String message) {
+    Serial.println("Error: " + message);
+    changeState(STATE_ERROR);
+    
+    display.fillScreen(BLACK);
+    display.setCursor(10, 10);
+    display.setTextColor(RED);
+    display.setTextSize(2);
+    display.println("ERROR:");
+    display.setCursor(10, 40);
+    display.setTextSize(1);
+    display.println(message);
+}
