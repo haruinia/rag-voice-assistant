@@ -268,7 +268,7 @@ async function performPCMTTS(text, voice = 'xiaomei') {
       throw new Error('Failed to get TTS token: ' + tokenResponse.data.error);
     }
     const token = tokenResponse.data.token;
-    const appKey = 'yXfaTeWXf28V9pEh';
+    const appKey = 'your_appKey';
     console.log('TTS Token obtained successfully');
 
     // 步骤2: 请求MP3音频 (即使我们想要PCM，API也可能返回MP3)
