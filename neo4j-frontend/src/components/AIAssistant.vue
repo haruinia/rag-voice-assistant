@@ -126,7 +126,7 @@ export default {
     return {
       // --- API 配置 ---
       apiBaseUrl: 'http://localhost:3000/api/data', // 后端知识图谱API基础地址
-      aiApiUrl: 'http://210.27.197.62:11434/api/chat', // 大模型API地址 (例如Ollama)
+      aiApiUrl: 'http://your_ip:11434/api/chat', // 大模型API地址 (例如Ollama)
       llmModel: 'deepseek-r1:32b', // 使用的大模型名称
 
       // --- 状态管理 ---
