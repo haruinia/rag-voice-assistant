@@ -1,15 +1,8 @@
-<!-- Language Switch | 语言切换 -->
-<p align="right">
-  <a href="#en-section"><img src="https://img.shields.io/badge/English-EN-blue?style=for-the-badge" alt="English"></a>
-  <a href="#zh-section"><img src="https://img.shields.io/badge/简体中文-ZH-brightgreen?style=for-the-badge" alt="简体中文"></a>
-</p>
-
 # 🌏 Cultural Heritage Intelligent Platform / 文物保护智能平台
 
 ---
 
 ## 🇬🇧 English (EN)
-<a id="en-section"></a>
 
 ### Project Overview
 A modern, intelligent knowledge management and interaction platform for the field of cultural heritage protection. This system integrates knowledge graph visualization, intelligent Q&A, voice assistant, and IoT device management, supporting both web and hardware endpoints.
@@ -35,7 +28,6 @@ A modern, intelligent knowledge management and interaction platform for the fiel
 Knowledge-management-system/
 ├── neo4j-backend/      # Backend service (Node.js + Express + Neo4j)
 ├── neo4j-frontend/     # Frontend project (Vue 3)
-├── MED_BBK_9K/         # Example dataset (optional)
 └── ...                 # Other files
 ```
 
@@ -106,7 +98,6 @@ Default access: [http://localhost:8080](http://localhost:8080)
 
 ### 📌 Additional Notes
 - To customize LLM API endpoints or Neo4j connection, edit the relevant config files.
-- Example dataset is in `MED_BBK_9K/` for testing or demo purposes.
 - For detailed API and component documentation, refer to the source code comments.
 
 ---
@@ -118,7 +109,6 @@ For further assistance or customization, please contact the project maintainer.
 
 
 ## 🇨🇳 简体中文 (ZH)
-<a id="zh-section"></a>
 
 ### 项目简介
 本项目是一个面向文物保护领域的智能知识管理与交互平台，集成了知识图谱可视化、智能问答、语音助手、硬件设备管理等多种功能。系统采用前后端分离架构，后端基于 Node.js + Express + Neo4j，前端基于 Vue 3 实现，支持与大语言模型（如 Ollama/DeepSeek）和阿里云语音服务集成，适用于文物知识管理、智能问答、语音交互及物联网设备监控等场景。
@@ -144,7 +134,6 @@ For further assistance or customization, please contact the project maintainer.
 Knowledge-management-system/
 ├── neo4j-backend/      # 后端服务（Node.js + Express + Neo4j）
 ├── neo4j-frontend/     # 前端项目（Vue 3）
-├── MED_BBK_9K/         # 示例数据集（可选）
 └── ...                 # 其他文件
 ```
 
@@ -215,7 +204,6 @@ npm run serve
 
 ### 📌 其他说明
 - 若需自定义大模型API地址、Neo4j连接等，请在相关配置文件中修改。
-- 示例数据集位于 `MED_BBK_9K/`，可用于测试或演示。
 - 详细API接口和前端组件说明请参考源码注释。
 
 ---
