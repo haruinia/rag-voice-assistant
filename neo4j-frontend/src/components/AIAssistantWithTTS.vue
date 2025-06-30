@@ -231,7 +231,7 @@ export default {
 
     // 语音服务配置
     const alibabaSpeechConfig = {
-      appKey: 'yXfaTeWXf28V9pEh',
+      appKey: 'your_appKey',
       tokenApiUrl: 'http://localhost:3000/api/get-speech-token',
     };
     const speechService = ref(null);
